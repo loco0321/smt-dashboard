@@ -3,12 +3,69 @@ from django.urls import reverse_lazy
 from django.views import generic
 from django.http import JsonResponse
 from django.db import connection
+import folium
+from django.shortcuts import render
 
 
 class home(generic.TemplateView):
     template_name = 'generales/home.html'
-    success_url = reverse_lazy('generales:home')
-    
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        query = """
+            SELECT
+                su.id AS encuesta_id,
+                (sa.data->'value'->>'latitude')::numeric AS latitud,
+                (sa.data->'value'->>'longitude')::numeric AS longitud,
+                sa.created_at
+            FROM survey_answer sa
+            JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+            WHERE sa.survey_question_id = 55
+              AND sa.data->'value' IS NOT NULL
+              AND jsonb_typeof(sa.data->'value') = 'object'
+              AND sa.data->'value'->>'latitude' IS NOT NULL
+              AND sa.data->'value'->>'longitude' IS NOT NULL
+            ORDER BY sa.created_at DESC;
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+        # Crear mapa base (no centrado aún, solo con estilo limpio)
+        m = folium.Map(
+            tiles="CartoDB positron",
+            zoom_start=13
+        )
+
+        centro_chia = [4.85, -74.05]   # lat, lon
+        m = folium.Map(
+            location=centro_chia,
+            zoom_start=12,
+            tiles="CartoDB positron"   # mapa base claro y de buena calidad
+        )
+
+        # añadir todos los puntos como círculos fijos
+        for encuesta_id, lat, lon, created_at in rows:
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=5,
+                color="blue",
+                fill=True,
+                fill_color="blue",
+                fill_opacity=0.6,
+                popup=f"Encuesta {encuesta_id} - {created_at}"
+            ).add_to(m)
+
+        # guardar mapa
+        m.save("mapa_chia.html")
+
+
+        # Pasar el mapa renderizado al template
+        context["mapa_html"] = m._repr_html_()
+        return context
+
 def total_encuestas_realtime(request):
     query = """
         SELECT COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
@@ -31,13 +88,13 @@ def total_encuestas_realtime(request):
 
 def encuestas_sector_477(request):
     query = """
-        SELECT
-            sa.data->>'value' AS sector,
+       SELECT
+            COALESCE(sa.data->>'value', 'SIN SECTOR') AS sector,
             COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
         FROM survey_answer sa
         WHERE sa.survey_question_id IN (477, 863)   -- sector puede venir de cualquiera
-          AND sa.created_at::date = CURRENT_DATE    -- solo encuestas de hoy
-        GROUP BY sa.data->>'value'
+        AND sa.created_at::date = CURRENT_DATE
+        GROUP BY ROLLUP (sa.data->>'value')
         ORDER BY sector;
     """
     
@@ -102,3 +159,31 @@ def total_personas_realtime(request):
 
     total = row[0] if row and row[0] is not None else 0
     return JsonResponse({"total_personas": total})
+
+def encuestas_por_usuario_hoy(request):
+    """
+    Devuelve encuestas agrupadas por usuario para la fecha actual.
+    """
+    query = """
+        SELECT 
+            u.id AS usuario_id,
+            u.username AS usuario_login,
+            (u.first_name || ' ' || u.last_name) AS usuario_nombre,
+            COUNT(DISTINCT su.id) AS total_encuestas_hoy
+        FROM survey_surveyuser su
+        JOIN auth_user u 
+            ON su.user_id = u.id
+        JOIN survey_answer sa 
+            ON sa.survey_user_id = su.id
+        WHERE su.survey_id IN (18, 30)
+          AND sa.created_at::date = CURRENT_DATE
+        GROUP BY u.id, u.username, u.first_name, u.last_name
+        ORDER BY total_encuestas_hoy DESC;
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+
+    data = [dict(zip(columns, row)) for row in rows]
+    return JsonResponse({"encuestas": data})

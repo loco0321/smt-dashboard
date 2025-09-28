@@ -17,4 +17,4 @@ class EncuestaRespuesta(models.Model):
 
     class Meta:
         db_table = 'encuestas_respuestas'
-
+        

@@ -13,63 +13,97 @@
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/latest/css/font-awesome.min.css">
         <link href="/static/base/assets/css/material-dashboard.css?v=2.1.0" rel="stylesheet" /> 
         <link href="/static/base/assets/demo/demo.css" rel="stylesheet" />
-        <script>
-            // Función genérica para obtener datos de una URL y actualizar un elemento
-            async function actualizarDato(url, elementId, key = null) {
-                try {
-                    const response = await fetch(url);
-                    const data = await response.json();
-                    const valor = key ? data[key] : data;
-                    document.getElementById(elementId).textContent = valor;
-                } catch (error) {
-                    console.error(`Error al obtener datos de ${url}:`, error);
+        <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script>
+    // Función genérica para obtener JSON
+    async function fetchJSON(url) {
+        try {
+            const response = await fetch(url);
+            return await response.json();
+        } catch (error) {
+            console.error(`Error al obtener datos de ${url}:`, error);
+            return null;
+        }
+    }
+
+    // Actualiza un elemento de texto simple
+    async function actualizarDato(url, elementId, key = null) {
+        const data = await fetchJSON(url);
+        if (data) {
+            const valor = key ? data[key] : data;
+            const el = document.getElementById(elementId);
+            if (el) {
+                if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+                    el.value = valor;     // para inputs
+                } else {
+                    el.textContent = valor; // para divs, spans, etc.
                 }
             }
-            async function actualizarSectores() {
-                try {
-                    const response = await fetch("/api/encuestas/sector-477/");
-                    const data = await response.json();
+        }
+    }
 
-                    const container = document.getElementById("sectores");
-                    container.innerHTML = ""; // limpiar antes
+    // Actualiza lista de sectores
+    async function actualizarSectores() {
+        const data = await fetchJSON("/api/encuestas/sector-477/");
+        const container = document.getElementById("sectores");
+        if (!container) return;
 
-                    if (data.sectores && data.sectores.length > 0) {
-                        data.sectores.forEach(s => {
-                            const item = document.createElement("div");
-                            item.textContent = `Sector ${s.sector}: ${s.total}`;
-                            container.appendChild(item);
-                        });
-                    } else {
-                        container.textContent = "Sin datos";
-                    }
-                } catch (error) {
-                    console.error("Error al obtener sectores:", error);
-                }
-            }
-            async function actualizarDato(url, elementId, key = null) {
-                try {
-                    const response = await fetch(url);
-                    const data = await response.json();
-                    const valor = key ? data[key] : data;
-                    document.getElementById(elementId).textContent = valor;
-                } catch (error) {
-                    console.error(`Error al obtener datos de ${url}:`, error);
-                }
-            }
-            // Función que actualiza todos los elementos de la página
-            async function actualizarTodo() {
-                await actualizarDato("/api/encuestas/total/", "total", "total_encuestas");
-                await actualizarSectores();
-                await actualizarDato("/api/encuestas/viviendas/", "resultado", "total_viviendas");
-                await actualizarDato("/api/encuestas/personas/", "total_personas", "total_personas");
-            }
-
-            // Ejecutar inmediatamente y luego cada 5 segundos
-            window.addEventListener("load", () => {
-                actualizarTodo();                // carga inicial
-                setInterval(actualizarTodo, 5000); // actualización periódica
+        container.innerHTML = "";
+        if (data?.sectores?.length > 0) {
+            data.sectores.forEach(s => {
+                const item = document.createElement("div");
+                item.textContent = `Sector ${s.sector}: ${s.total}`;
+                container.appendChild(item);
             });
-        </script>
+        } else {
+            container.textContent = "Sin datos";
+        }
+    }
+
+    // Renderizador genérico de tabla
+    function renderTabla(tbodySelector, rows, columnas, emptyMsg) {
+        const tbody = document.querySelector(tbodySelector);
+        if (!tbody) return;
+
+        tbody.innerHTML = "";
+        if (rows?.length > 0) {
+            rows.forEach(r => {
+                const fila = "<tr>" + columnas.map(c => `<td>${r[c]}</td>`).join("") + "</tr>";
+                tbody.insertAdjacentHTML("beforeend", fila);
+            });
+        } else {
+            tbody.innerHTML = `<tr><td colspan="${columnas.length}">${emptyMsg}</td></tr>`;
+        }
+    }
+
+    // Actualiza encuestas realizadas (tabla)
+    async function actualizarEncuestasRealizadas() {
+        const data = await fetchJSON("/encuestas_realizadas/");
+        renderTabla("#tabla-encuestas tbody", data?.encuestas, [
+            "survey_user_id", "survey_id", "usuario_id", "usuario_login",
+            "usuario_nombre", "total_preguntas", "primera_respuesta", "ultima_respuesta"
+        ], "Sin encuestas");
+    }
+
+    // Función que actualiza todo
+    async function actualizarTodo() {
+        await actualizarDato("/api/encuestas/total/", "total", "total_encuestas");
+        await actualizarDato("/api/encuestas/viviendas/", "resultado", "total_viviendas");
+        await actualizarDato("/api/encuestas/personas/", "total_personas", "total_personas");
+        await actualizarSectores();
+        await actualizarEncuestasRealizadas();
+        await cargarEncuestasPorUsuario();
+    }
+
+    // Inicialización única
+    window.addEventListener("load", () => {
+        actualizarTodo();                  // carga inicial
+        setInterval(actualizarTodo, 10000); // refresco cada 10s
+    });
+</script>
+
+
+
     </head>
 
     <body class="">
@@ -456,9 +490,14 @@
                                     <div class="card ">
                                     <div class="card-header card-header-success card-header-icon">
                                         <div class="card-icon">
-                                        <i class="material-icons"></i>
+                                            <i class="material-icons"></i>
                                         </div>
                                         <h4 class="card-title">Monitoreo <strong>CENSO CHÍA 2025</strong></h4>
+                                        <div class="row-justify-content-center  text-center ">
+                                            <div id="mapa-container" style="height: 500px; width: 60%; text-align: center; margin: auto;">
+                                                {{ mapa_html|safe }}
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="card-body ">
                                         <div class="row">
@@ -519,20 +558,8 @@
                                                 
                                                     </td>
                                                 </tr>
+
                                                 <!--
-                                                <tr>
-                                                    <td>
-                                                    <div class="flag">
-                                                        <img src="/static/base/assets/img/favicon.png" ></div>
-                                                    </td>
-                                                    <td>Romania</td>
-                                                    <td class="text-right">
-                                                    600
-                                                    </td>
-                                                    <td class="text-right">
-                                                    5.94%
-                                                    </td>
-                                                </tr>
                                                 <tr>
                                                     <td>
                                                     <div class="flag">
@@ -551,12 +578,66 @@
                                             </table>
                                             </div>
                                             </div>
-                                            <div class="col-md-6 ml-auto mr-auto">
-                                                <div id="worldMap" style="height: 300px;"></div>
                                             </div>
                                             </div>
-                                            </div>
-                                            </div>
+                                            <h4>Encuestas por censista</h4>
+                                            <div id="usuarios-hoy" class="p-4 border rounded bg-white shadow">
+    <p class="text-gray-500 italic">Cargando encuestas...</p>
+  </div>
+
+  <script>
+    async function cargarEncuestasPorUsuario() {
+      const cont = document.getElementById("usuarios-hoy");
+
+      try {
+        const res = await fetch("{% url 'generales:encuestas_por_usuario_hoy' %}"); // 👈 asegúrate que tu urls.py tiene app_name="generales"
+        if (!res.ok) throw new Error(`Error HTTP: ${res.status}`);
+        const data = await res.json();
+
+        if (!data.encuestas.length) {
+          cont.innerHTML = "<p class='text-gray-500 italic'>Sin encuestas hoy</p>";
+          return;
+        }
+
+        let html = `
+          <table class="table-auto border-collapse border border-gray-300 w-full text-sm">
+            <thead class="bg-gray-200">
+              <tr>
+                <th class="border p-2">ID</th>
+                <th class="border p-2">Usuario</th>
+                <th class="border p-2">Nombre</th>
+                <th class="border p-2 text-center">Total Encuestas Hoy</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        data.encuestas.forEach(e => {
+          html += `
+            <tr class="hover:bg-gray-50">
+              <td class="border p-2">${e.usuario_id}</td>
+              <td class="border p-2">${e.usuario_login}</td>
+              <td class="border p-2">${e.usuario_nombre}</td>
+              <td class="border p-2 text-center font-semibold">${e.total_encuestas_hoy}</td>
+            </tr>
+          `;
+        });
+
+        html += "</tbody></table>";
+        cont.innerHTML = html;
+
+      } catch (err) {
+        console.error("Error cargando encuestas:", err);
+        cont.innerHTML = "<p class='text-red-600 font-bold'>Error al cargar los datos</p>";
+      }
+    }
+
+    // 🚀 cargar al inicio
+    cargarEncuestasPorUsuario();
+
+    // 🔄 refrescar cada 30 segundos
+    setInterval(cargarEncuestasPorUsuario, 30000);
+  </script>
                                             </div>
                                             </div>
                                             
@@ -1023,6 +1104,8 @@
         <script src="/static/base/assets/js/material-dashboard.js?v=2.1.0" type="text/javascript"></script>
         <!-- Material Dashboard DEMO methods, don't include it in your project! -->
         <script src="/static/base/assets/demo/demo.js"></script>
+        <!-- jQuery -->
+  
         <script>
             $(document).ready(function() {
             $().ready(function() {
