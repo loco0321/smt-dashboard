@@ -1,55 +1,24 @@
-# Archivos de sistema
+# Archivos de Python
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
-*.DS_Store
-*.swp
-*.swo
+*.pyo
+*.pyd
+*.db
+*.sqlite3
 
-# Entorno virtual
+# Entornos virtuales
 venv/
-env/
-ENV/
+.env/
 .venv/
-.python-version
+env/
 
-# Archivos de configuración/locales
-*.env
-*.local
-*.ini
-*.cfg
-
-# Archivos de base de datos (si usas sqlite)
-db.sqlite3
-db.sqlite3-journal
-
-# Archivos estáticos y de media generados
-/staticfiles/
-media/
+# Archivos de configuración local
 *.log
+*.pot
+*.py[cod]
+*.swp
+.DS_Store
 
-# Migraciones compiladas (se suelen versionar, pero puedes ignorar si prefieres generarlas en deploy)
-*/migrations/__pycache__/
-*/migrations/*.pyc
-*/migrations/*.pyo
-
-# Archivos de coverage/testing
-.coverage
-coverage.xml
-htmlcov/
-.pytest_cache/
-
-# Archivos de IDEs/editores
-.vscode/
-.idea/
-*.iml
-
-# Archivos de compilación
-*.egg-info/
-dist/
-build/
-
-# Archivos de docker (si usas)
-*.pid
-*.seed
-*.cover
+# Archivos de Django
+/media/
+staticfiles/

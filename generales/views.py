@@ -4,8 +4,10 @@ from django.views import generic
 from django.http import JsonResponse
 from django.db import connection
 import folium
+from folium.plugins import MarkerCluster, HeatMap
+import geopandas as gpd
 from django.shortcuts import render
-
+from folium.features import DivIcon
 
 class home(generic.TemplateView):
     template_name = 'generales/home.html'
@@ -13,57 +15,191 @@ class home(generic.TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        query = """
-            SELECT
-                su.id AS encuesta_id,
-                (sa.data->'value'->>'latitude')::numeric AS latitud,
-                (sa.data->'value'->>'longitude')::numeric AS longitud,
-                sa.created_at
-            FROM survey_answer sa
-            JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-            WHERE sa.survey_question_id = 55
-              AND sa.data->'value' IS NOT NULL
-              AND jsonb_typeof(sa.data->'value') = 'object'
-              AND sa.data->'value'->>'latitude' IS NOT NULL
-              AND sa.data->'value'->>'longitude' IS NOT NULL
-            ORDER BY sa.created_at DESC;
-        """
-
+        # === Viviendas (coordenadas) ===
         with connection.cursor() as cursor:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            cursor.execute("""
+                SELECT DISTINCT ON (su.id)
+                    su.id AS vivienda_id,
+                    (sa.data->'value'->>'latitude')::numeric AS latitud,
+                    (sa.data->'value'->>'longitude')::numeric AS longitud,
+                    sa.created_at
+                FROM survey_answer sa
+                JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+                WHERE sa.survey_question_id = 55
+                  AND jsonb_typeof(sa.data->'value') = 'object'
+                  AND sa.data->'value'->>'latitude' IS NOT NULL
+                  AND sa.data->'value'->>'longitude' IS NOT NULL
+                ORDER BY su.id, sa.created_at DESC;
+            """)
+            cols = [col[0] for col in cursor.description]
+            viviendas = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
-        # Crear mapa base (no centrado aún, solo con estilo limpio)
-        m = folium.Map(
-            tiles="CartoDB positron",
-            zoom_start=13
-        )
+        # === Sectores (con coordenadas) ===
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                WITH coords AS (
+                  SELECT DISTINCT ON (su.id)
+                      su.id AS vivienda_id,
+                      (sa.data->'value'->>'latitude')::numeric  AS latitud,
+                      (sa.data->'value'->>'longitude')::numeric AS longitud,
+                      sa.created_at
+                  FROM survey_answer sa
+                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+                  WHERE sa.survey_question_id = 55
+                    AND jsonb_typeof(sa.data->'value') = 'object'
+                    AND sa.data->'value'->>'latitude' IS NOT NULL
+                    AND sa.data->'value'->>'longitude' IS NOT NULL
+                  ORDER BY su.id, sa.created_at DESC
+                ),
+                sector_ult AS (
+                  SELECT DISTINCT ON (su.id)
+                      su.id AS vivienda_id,
+                      NULLIF(
+                        CASE
+                          WHEN jsonb_typeof(sa.data->'value') = 'object' THEN sa.data->'value'->>'label'
+                          ELSE sa.data->>'value'
+                        END,
+                      '') AS sector,
+                      sa.created_at
+                  FROM survey_answer sa
+                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+                  WHERE sa.survey_question_id IN (477, 863)
+                  ORDER BY su.id, sa.created_at DESC
+                )
+                SELECT
+                  c.vivienda_id,
+                  c.latitud,
+                  c.longitud,
+                  COALESCE(s.sector, 'SIN SECTOR') AS sector
+                FROM coords c
+                LEFT JOIN sector_ult s USING (vivienda_id);
+            """)
+            cols = [col[0] for col in cursor.description]
+            sectores = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
-        centro_chia = [4.85, -74.05]   # lat, lon
-        m = folium.Map(
-            location=centro_chia,
-            zoom_start=12,
-            tiles="CartoDB positron"   # mapa base claro y de buena calidad
-        )
+        # === Personas (con coordenadas) ===
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                WITH coords AS (
+                  SELECT DISTINCT ON (su.id)
+                      su.id AS vivienda_id,
+                      (sa.data->'value'->>'latitude')::numeric  AS latitud,
+                      (sa.data->'value'->>'longitude')::numeric AS longitud,
+                      sa.created_at
+                  FROM survey_answer sa
+                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+                  WHERE sa.survey_question_id = 55
+                    AND jsonb_typeof(sa.data->'value') = 'object'
+                    AND sa.data->'value'->>'latitude' IS NOT NULL
+                    AND sa.data->'value'->>'longitude' IS NOT NULL
+                  ORDER BY su.id, sa.created_at DESC
+                ),
+                personas_ult AS (
+                  SELECT DISTINCT ON (su.id)
+                      su.id AS vivienda_id,
+                      CASE
+                        WHEN sa.data ? 'value' AND (sa.data->>'value') ~ '^[0-9]+$'
+                          THEN (sa.data->>'value')::int
+                        WHEN jsonb_typeof(sa.data->'value') = 'object'
+                             AND (sa.data->'value'->>'cantidad') ~ '^[0-9]+$'
+                          THEN (sa.data->'value'->>'cantidad')::int
+                        ELSE NULL
+                      END AS total_personas,
+                      sa.created_at
+                  FROM survey_answer sa
+                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+                  WHERE sa.survey_question_id = 100  -- id real de población
+                  ORDER BY su.id, sa.created_at DESC
+                )
+                SELECT
+                  c.vivienda_id,
+                  c.latitud,
+                  c.longitud,
+                  COALESCE(p.total_personas, 0) AS total_personas
+                FROM coords c
+                LEFT JOIN personas_ult p USING (vivienda_id);
+            """)
+            cols = [col[0] for col in cursor.description]
+            personas = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
-        # añadir todos los puntos como círculos fijos
-        for encuesta_id, lat, lon, created_at in rows:
+        # === Centro del mapa ===
+        if viviendas:
+            latitudes = [v["latitud"] for v in viviendas if v["latitud"]]
+            longitudes = [v["longitud"] for v in viviendas if v["longitud"]]
+            lat_centro = sum(latitudes) / len(latitudes)
+            lon_centro = sum(longitudes) / len(longitudes)
+        else:
+            lat_centro, lon_centro = 4.65, -74.1
+
+        # === Crear mapa ===
+        m = folium.Map(location=[lat_centro, lon_centro], zoom_start=12, tiles=None, attributionControl = False)
+
+        # Capas base
+        mapas_base = [
+            ("Esri World Imagery",
+             "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+             "Tiles © Esri — Source: Esri, Earthstar Geographics, GeoEye"),
+            ("OpenStreetMap",
+             "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+             "© OpenStreetMap contributors"),
+        ]
+        for nombre, url, attr in mapas_base:
+            folium.TileLayer(tiles=url, name=nombre, attr=attr, overlay=False).add_to(m)
+
+        # === Capa viviendas ===
+        capa_viviendas = folium.FeatureGroup(name="Viviendas", show=True)
+        cluster = MarkerCluster().add_to(capa_viviendas)
+        for v in viviendas:
+            if not v["latitud"] or not v["longitud"]:
+                continue
             folium.CircleMarker(
-                location=[lat, lon],
+                [v["latitud"], v["longitud"]],
                 radius=5,
                 color="blue",
                 fill=True,
                 fill_color="blue",
                 fill_opacity=0.6,
-                popup=f"Encuesta {encuesta_id} - {created_at}"
-            ).add_to(m)
+                popup=f"Vivienda {v['vivienda_id']}<br>{v['created_at']}"
+            ).add_to(cluster)
+        capa_viviendas.add_to(m)
 
-        # guardar mapa
-        m.save("mapa_chia.html")
+        # === Capa sectores ===
+        capa_sectores = folium.FeatureGroup(name="Sectores", show=False)
+        for s in sectores:
+            if not s["latitud"] or not s["longitud"]:
+                continue
+            folium.Marker(
+                [s["latitud"], s["longitud"]],
+                icon=folium.Icon(color="purple", icon="home"),
+                popup=f"Vivienda {s['vivienda_id']}<br>Sector: {s['sector']}"
+            ).add_to(capa_sectores)
+        capa_sectores.add_to(m)
 
+        # === Capa población ===
+        capa_personas = folium.FeatureGroup(name="Población", show=False)
+        for p in personas:
+            if not p["latitud"] or not p["longitud"]:
+                continue
+            folium.CircleMarker(
+                [p["latitud"], p["longitud"]],
+                radius=3 + (p["total_personas"] or 0),  # radio proporcional
+                color="red",
+                fill=True,
+                fill_color="red",
+                fill_opacity=0.6,
+                popup=f"Vivienda {p['vivienda_id']}<br>Personas: {p['total_personas']}"
+            ).add_to(capa_personas)
+        capa_personas.add_to(m)
 
-        # Pasar el mapa renderizado al template
-        context["mapa_html"] = m._repr_html_()
+        # === Heatmap ===
+        heat_data = [[p["latitud"], p["longitud"], p["total_personas"]] for p in personas if p["latitud"] and p["longitud"]]
+        if heat_data:
+            HeatMap(heat_data, radius=12, blur=8, min_opacity=0.4, name="Densidad poblacional").add_to(m)
+
+        # Control de capas
+        folium.LayerControl(collapsed=False).add_to(m)
+
+        context["mapa"] = m._repr_html_()
         return context
 
 def total_encuestas_realtime(request):
@@ -72,7 +208,7 @@ def total_encuestas_realtime(request):
         FROM survey_answer sa
         INNER JOIN survey_surveyuser su 
             ON sa.survey_user_id = su.id
-        WHERE su.survey_id IN (18, 30)                -- solo encuestas 18 y 30
+        WHERE su.survey_id IN (18, 30, 31)                -- solo encuestas 18 y 30
           AND sa.created_at::date = CURRENT_DATE;     -- solo encuestas de hoy
     """
     
