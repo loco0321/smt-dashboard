@@ -336,3 +336,208 @@ def encuestas_por_usuario_hoy(request):
     return JsonResponse({"encuestas": data})
 
 
+
+
+
+    # Consolidado
+// === MAPA ===
+  let map = L.map('map', { attributionControl: false });
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 20 }
+  ).addTo(map);
+
+  // Atribución personalizada
+  L.control.attribution({position:'bottomright'})
+    .addAttribution("© Dashboard SMT-ONIC")
+    .addTo(map);
+
+  // Capas
+  let layerTotal = L.layerGroup().addTo(map);
+  let layerViviendas = L.layerGroup().addTo(map);
+  let layerSectores = L.layerGroup().addTo(map);
+
+  L.control.layers(null, {
+    "Total Encuestas": layerTotal,
+    "Viviendas": layerViviendas,
+    "Sectores": layerSectores
+  }, {collapsed:false}).addTo(map);
+
+  // Icono especial para viviendas
+  const houseIcon = L.divIcon({
+    html: "🏠",
+    className: "text-2xl",
+    iconSize: [24,24],
+    iconAnchor: [12,12]
+  });
+
+  // ⚡ Para evitar zoom en cada refresh
+  let firstFit = true;
+  let lastMarkers = [];
+
+  function updateUI(payload) {
+    // === KPIs ===
+    document.getElementById('kpi-total').textContent = (payload.kpis.total_encuestas ?? 0).toLocaleString();
+    document.getElementById('kpi-viviendas').textContent = (payload.kpis.total_viviendas ?? 0).toLocaleString();
+    document.getElementById('kpi-sectores').textContent = (payload.kpis.total_sectores ?? 0).toLocaleString();
+
+    // === Gráfica censistas ===
+    const censistas = payload.censistas || [];
+    Plotly.react('chart-censistas', [{
+      x: censistas.map(r => String(r.convencion)),
+      y: censistas.map(r => r.total_encuestas),
+      type: 'bar',
+      text: censistas.map(r => r.nombre_completo),
+      hoverinfo: 'text+y'
+    }], {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{color:'#e5e7eb'},
+      xaxis:{title:"Censista (ID)", type:"category"},
+      yaxis:{title:"Encuestas"}
+    }, {displayModeBar:false});
+
+    // === Gráfica sectores ===
+    const sectores = payload.sectores || [];
+    Plotly.react('chart-sectores', [{
+      labels: sectores.map(r => r.sector),
+      values: sectores.map(r => r.total),
+      type: 'pie',
+      hole:.45
+    }], {
+      paper_bgcolor:'#111827',
+      font:{color:'#e5e7eb'}
+    }, {displayModeBar:false});
+
+    // === Tabla convenciones ===
+    const tbody = document.getElementById('tabla-convenciones');
+    tbody.innerHTML = '';
+    (payload.convenciones || []).forEach(row => {
+      tbody.innerHTML += `
+        <tr class="border-b border-gray-700">
+          <td class="px-4 py-2">${row.convencion}</td>
+          <td class="px-4 py-2">${row.nombre_completo}</td>
+          <td class="px-4 py-2">${row.total_encuestas}</td>
+        </tr>`;
+    });
+
+    // === MAPA ===
+    layerTotal.clearLayers();
+    layerViviendas.clearLayers();
+    layerSectores.clearLayers();
+    let markers = [];
+
+    // Total encuestas
+    (payload.geo || []).forEach(r => {
+      if(r.lat && r.lng){
+        let m = L.circleMarker([r.lat, r.lng], {
+          radius: 5,
+          color: "#38bdf8",
+          fillColor: "#0ea5e9",
+          fillOpacity: .8
+        }).bindPopup(`<b>Encuesta:</b> ${r.survey_user_id}`);
+        m.addTo(layerTotal);
+        markers.push([r.lat, r.lng]);
+      }
+    });
+
+    // Viviendas
+    (payload.viviendas_geo || []).forEach(r => {
+      if(r.lat && r.lng){
+        let m = L.marker([r.lat, r.lng], {icon: houseIcon})
+          .bindPopup(`<b>Vivienda:</b> ${r.vivienda}`);
+        m.addTo(layerViviendas);
+        markers.push([r.lat, r.lng]);
+      }
+    });
+
+    // Sectores
+    let sectoresDict = {};
+    (payload.sectores_geo || []).forEach(r => {
+      if(!sectoresDict[r.sector]) sectoresDict[r.sector] = [];
+      sectoresDict[r.sector].push([r.lat, r.lng]);
+    });
+    for(const [sector, pts] of Object.entries(sectoresDict)){
+      if(pts.length >= 3){
+        L.polygon(pts, {
+          color:"#f97316",
+          weight:2,
+          fillColor:"#facc15",
+          fillOpacity:.3
+        }).addTo(layerSectores);
+      }
+      pts.forEach(p=>{
+        L.circleMarker(p, {
+          radius: 4,
+          color: "#f59e0b",
+          fillColor: "#fbbf24",
+          fillOpacity:.9
+        }).bindPopup(`<b>Sector:</b> ${sector}`).addTo(layerSectores);
+        markers.push(p);
+      });
+    }
+
+    // Ajustar zoom solo primera vez
+   if(firstFit){
+    zoomToCluster(markers);
+    firstFit = false;
+  }
+
+    lastMarkers = markers;
+  }
+
+  // === BOTÓN "RECENTRAR" ===
+  const recenterBtn = L.control({position:'topleft'});
+  recenterBtn.onAdd = function(){
+    let div = L.DomUtil.create('div','');
+    div.innerHTML = `
+      <button id="btn-recenter" 
+        class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg shadow-lg">
+        🔍 Recentrar
+      </button>`;
+    return div;
+  };
+  recenterBtn.addTo(map);
+
+  document.addEventListener("click", e=>{
+    if(e.target && e.target.id==="btn-recenter" && lastMarkers.length>0){
+      zoomToCluster(lastMarkers);
+
+    }
+  });
+
+  // === REFRESCAR DATOS ===
+  renderCharts();
+  async function refresh(){ try{ updateUI(await fetchData()); } catch(e){ console.error(e); } }
+  refresh();
+  setInterval(refresh, 10000);
+
+  // === FUNCIÓN PARA HACER ZOOM A LA ZONA PRINCIPAL ===
+function zoomToCluster(markers){
+  if(markers.length === 0){
+    map.setView([4.65, -74.1], 8); // Bogotá por defecto
+    return;
+  }
+
+  // Calcular centro promedio
+  let latSum = 0, lngSum = 0;
+  markers.forEach(p => { latSum += p[0]; lngSum += p[1]; });
+  let center = [latSum/markers.length, lngSum/markers.length];
+
+  // Calcular dispersión aproximada
+  let maxDist = 0;
+  markers.forEach(p => {
+    let dLat = p[0] - center[0];
+    let dLng = p[1] - center[1];
+    let dist = Math.sqrt(dLat*dLat + dLng*dLng);
+    if(dist > maxDist) maxDist = dist;
+  });
+
+  // Ajustar zoom en función de la dispersión
+  let zoom = 14; // por defecto cercano
+  if(maxDist > 0.5) zoom = 8;   // muy disperso (ej: varios municipios)
+  else if(maxDist > 0.1) zoom = 11; // moderado
+  else if(maxDist > 0.05) zoom = 13;
+
+  map.setView(center, zoom);
+}

@@ -22,6 +22,7 @@ def monitoreo_dashboard(request):
 
 
 def monitoreo_data(request):
+    print("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
     conn = connection
 
     # Total encuestas
@@ -32,6 +33,7 @@ def monitoreo_data(request):
     """
     df_total = pd.read_sql(q_total, conn)
     total_encuestas = int(df_total["total_encuestas"].iloc[0]) if not df_total.empty else 0
+    print("Total encuestas:", total_encuestas   )
 
     # Viviendas
     q_viviendas = """
@@ -225,117 +227,4 @@ def _scope_sql(alias: str, scope: str) -> str:
     if scope == "today":
         return f" AND ({alias}.created_at)::date = CURRENT_DATE "
     return ""
-
-def monitoreo_data(request):
-    conn = connection
-
-    # Total encuestas (contando survey_user_id distintos)
-    q_total = f"""
-        SELECT COUNT(DISTINCT survey_user_id) AS total_encuestas
-        FROM survey_answer
-        WHERE survey_id IN {SURVEY_IDS};
-    """
-    df_total = pd.read_sql(q_total, conn)
-    total_encuestas = int(df_total["total_encuestas"].iloc[0]) if not df_total.empty else 0
-
-    # Viviendas únicas
-    q_viviendas = f"""
-        SELECT COUNT(DISTINCT TRIM(data->>'value')) AS total_viviendas
-        FROM survey_answer
-        WHERE survey_id IN {SURVEY_IDS}
-          AND survey_question_id IN {VIVIENDA_QIDS};
-    """
-    df_viviendas = pd.read_sql(q_viviendas, conn)
-    total_viviendas = int(df_viviendas["total_viviendas"].iloc[0]) if not df_viviendas.empty else 0
-
-    # Sectores
-    q_sectores = f"""
-        SELECT (data->>'value') AS sector, COUNT(*) AS total
-        FROM survey_answer
-        WHERE survey_id IN {SURVEY_IDS}
-          AND survey_question_id IN {SECTOR_QIDS}
-        GROUP BY data->>'value';
-    """
-    df_sectores = pd.read_sql(q_sectores, conn)
-    sectores = df_sectores.to_dict(orient="records")
-
-    # Censistas
-    q_censistas = f"""
-        SELECT sa.user_id AS convencion,
-               CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')) AS nombre_completo,
-               COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
-        FROM survey_answer sa
-        JOIN auth_user u ON u.id = sa.user_id
-        WHERE sa.survey_id IN {SURVEY_IDS}
-        GROUP BY sa.user_id, u.first_name, u.last_name
-        ORDER BY total_encuestas DESC;
-    """
-    df_censistas = pd.read_sql(q_censistas, conn)
-    censistas = df_censistas.to_dict(orient="records")
-
-    # GEO: Encuestas con coordenadas
-    q_geo = f"""
-        SELECT sa.survey_user_id, sa.user_id,
-               (c.data->'value'->>'latitude')::float AS lat,
-               (c.data->'value'->>'longitude')::float AS lng
-        FROM survey_answer c
-        JOIN survey_answer sa ON sa.survey_user_id = c.survey_user_id
-        WHERE c.survey_id IN {SURVEY_IDS}
-          AND c.survey_question_id = {COORD_QID}
-          AND (c.data->'value'->>'latitude') IS NOT NULL
-          AND (c.data->'value'->>'longitude') IS NOT NULL;
-    """
-    df_geo = pd.read_sql(q_geo, conn)
-    geo = df_geo.to_dict(orient="records")
-
-    # GEO: Viviendas
-    q_viv_geo = f"""
-        SELECT v.data->>'value' AS vivienda,
-               (c.data->'value'->>'latitude')::float AS lat,
-               (c.data->'value'->>'longitude')::float AS lng
-        FROM survey_answer v
-        JOIN survey_answer c
-          ON c.survey_user_id = v.survey_user_id
-         AND c.survey_id = v.survey_id
-         AND c.survey_question_id = {COORD_QID}
-        WHERE v.survey_id IN {SURVEY_IDS}
-          AND v.survey_question_id IN {VIVIENDA_QIDS}
-          AND (c.data->'value'->>'latitude') IS NOT NULL
-          AND (c.data->'value'->>'longitude') IS NOT NULL;
-    """
-    df_viv_geo = pd.read_sql(q_viv_geo, conn)
-    viviendas_geo = df_viv_geo.to_dict(orient="records")
-
-    # GEO: Sectores -> puntos
-    q_sector_points = f"""
-        SELECT s.data->>'value' AS sector,
-               (c.data->'value'->>'latitude')::float AS lat,
-               (c.data->'value'->>'longitude')::float AS lng
-        FROM survey_answer s
-        JOIN survey_answer c
-          ON c.survey_user_id = s.survey_user_id
-         AND c.survey_id = s.survey_id
-         AND c.survey_question_id = {COORD_QID}
-        WHERE s.survey_id IN {SURVEY_IDS}
-          AND s.survey_question_id IN {SECTOR_QIDS}
-          AND TRIM(s.data->>'value') <> ''
-          AND (c.data->'value'->>'latitude') IS NOT NULL
-          AND (c.data->'value'->>'longitude') IS NOT NULL;
-    """
-    df_sector_points = pd.read_sql(q_sector_points, conn)
-    sectores_geo = df_sector_points.to_dict(orient="records")
-
-    return JsonResponse({
-        "kpis": {
-            "total_encuestas": total_encuestas,
-            "total_viviendas": total_viviendas,
-            "total_sectores": len(sectores)
-        },
-        "censistas": censistas,
-        "sectores": sectores,
-        "convenciones": censistas,
-        "geo": geo,
-        "viviendas_geo": viviendas_geo,
-        "sectores_geo": sectores_geo
-    })
 
