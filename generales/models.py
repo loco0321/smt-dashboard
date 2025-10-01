@@ -18,3 +18,13 @@ class EncuestaRespuesta(models.Model):
     class Meta:
         db_table = 'encuestas_respuestas'
         
+class SurveyResult(models.Model):
+    id = models.AutoField(primary_key=True)
+    survey_id = models.IntegerField()
+    vivienda = models.CharField(max_length=100)
+    sector = models.CharField(max_length=100)
+    persona = models.CharField(max_length=200)
+
+    class Meta:
+        managed = False   # 🔒 Django no creará ni borrará la tabla
+        db_table = 'encuestas'   # ⚠️ pon aquí el nombre real de la tabla

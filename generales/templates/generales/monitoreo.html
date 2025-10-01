@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Monitoreo Diario de Encuestas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body { background: #0f172a; }
+    .card { background: #111827; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .kpi { background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%); }
+  </style>
+</head>
+<body class="text-gray-100 min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <header class="mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold">Monitoreo Diario de Encuestas</h1>
+      <p class="text-gray-400 mt-1">Datos del día actual (se actualiza cada 10 segundos)</p>
+    </header>
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total encuestas</p>
+        <p id="kpi-total" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total viviendas</p>
+        <p id="kpi-viviendas" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total sectores</p>
+        <p id="kpi-sectores" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+    </section>
+
+    <!-- Charts -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="card p-4">
+        <h2 class="text-lg font-semibold mb-2">Encuestas por censista</h2>
+        <div id="chart-censistas" class="w-full h-[360px]"></div>
+      </div>
+      <div class="card p-4">
+        <h2 class="text-lg font-semibold mb-2">Distribución por sectores</h2>
+        <div id="chart-sectores" class="w-full h-[360px]"></div>
+      </div>
+    </section>
+
+    <!-- Tabla de convenciones -->
+    <section class="card p-4 mt-6">
+      <h2 class="text-lg font-semibold mb-2">Convenciones de censistas</h2>
+      <table class="min-w-full text-sm text-left text-gray-300">
+        <thead class="text-gray-400 border-b border-gray-600">
+          <tr>
+            <th class="px-4 py-2">ID</th>
+            <th class="px-4 py-2">Nombre completo</th>
+            <th class="px-4 py-2">Total encuestas</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-convenciones"></tbody>
+      </table>
+    </section>
+
+    <footer class="mt-8 text-xs text-gray-500">
+      Reporte generado en tiempo real. Datos de <code>survey_surveyuser</code> y <code>survey_answer</code>.
+    </footer>
+  </div>
+
+  <script>
+    async function fetchData() {
+      const res = await fetch('/dashboard/data/');
+      return res.json();
+    }
+
+    function renderOnce() {
+      Plotly.newPlot('chart-censistas', [{x: [], y: [], type: 'bar'}],
+        { paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{color:'#e5e7eb'} },
+        {displayModeBar: false});
+      Plotly.newPlot('chart-sectores', [{labels: [], values: [], type: 'pie', hole:.45}],
+        { paper_bgcolor:'#111827', font:{color:'#e5e7eb'} },
+        {displayModeBar: false});
+    }
+
+    function updateUI(payload) {
+      // KPIs
+      document.getElementById('kpi-total').textContent = (payload.kpis.total_encuestas ?? 0).toLocaleString();
+      document.getElementById('kpi-viviendas').textContent = (payload.kpis.total_viviendas ?? 0).toLocaleString();
+      document.getElementById('kpi-sectores').textContent = (payload.kpis.total_sectores ?? 0).toLocaleString();
+
+      // Gráfica de censistas
+      const censistas = payload.censistas || [];
+      Plotly.react('chart-censistas', [{
+        x: censistas.map(r => String(r.convencion)),
+        y: censistas.map(r => r.total_encuestas),
+        type: 'bar',
+        text: censistas.map(r => r.nombre_completo),
+        hoverinfo: 'text+y'
+      }], {
+        paper_bgcolor:'#111827',
+        plot_bgcolor:'#111827',
+        font:{color:'#e5e7eb'},
+        xaxis:{title:"Censista (ID)", type:"category"},
+        yaxis:{title:"Encuestas"}
+      }, {displayModeBar:false});
+
+      // Gráfica de sectores
+      const sectores = payload.sectores || [];
+      Plotly.react('chart-sectores', [{
+        labels: sectores.map(r => r.sector),
+        values: sectores.map(r => r.total),
+        type: 'pie',
+        hole:.45
+      }], {
+        paper_bgcolor:'#111827',
+        font:{color:'#e5e7eb'}
+      }, {displayModeBar:false});
+
+      // Tabla de convenciones
+      const tbody = document.getElementById('tabla-convenciones');
+      tbody.innerHTML = '';
+      (payload.convenciones || []).forEach(row => {
+        tbody.innerHTML += `
+          <tr class="border-b border-gray-700">
+            <td class="px-4 py-2">${row.user_id}</td>
+            <td class="px-4 py-2">${row.nombre_completo}</td>
+            <td class="px-4 py-2">${row.total_encuestas}</td>
+          </tr>`;
+      });
+    }
+
+    renderOnce();
+    refresh();
+    setInterval(refresh, 10000);
+
+    async function refresh() {
+      try {
+        const data = await fetchData();
+        updateUI(data);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  </script>
+</body>
+</html>

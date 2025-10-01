@@ -10,316 +10,101 @@ from django.shortcuts import render
 from folium.features import DivIcon
 
 class home(generic.TemplateView):
-    template_name = 'generales/home.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-
-        # === Viviendas (coordenadas) ===
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT DISTINCT ON (su.id)
-                    su.id AS vivienda_id,
-                    (sa.data->'value'->>'latitude')::numeric AS latitud,
-                    (sa.data->'value'->>'longitude')::numeric AS longitud,
-                    sa.created_at
-                FROM survey_answer sa
-                JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-                WHERE sa.survey_question_id = 55
-                  AND jsonb_typeof(sa.data->'value') = 'object'
-                  AND sa.data->'value'->>'latitude' IS NOT NULL
-                  AND sa.data->'value'->>'longitude' IS NOT NULL
-                ORDER BY su.id, sa.created_at DESC;
-            """)
-            cols = [col[0] for col in cursor.description]
-            viviendas = [dict(zip(cols, row)) for row in cursor.fetchall()]
-
-        # === Sectores (con coordenadas) ===
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                WITH coords AS (
-                  SELECT DISTINCT ON (su.id)
-                      su.id AS vivienda_id,
-                      (sa.data->'value'->>'latitude')::numeric  AS latitud,
-                      (sa.data->'value'->>'longitude')::numeric AS longitud,
-                      sa.created_at
-                  FROM survey_answer sa
-                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-                  WHERE sa.survey_question_id = 55
-                    AND jsonb_typeof(sa.data->'value') = 'object'
-                    AND sa.data->'value'->>'latitude' IS NOT NULL
-                    AND sa.data->'value'->>'longitude' IS NOT NULL
-                  ORDER BY su.id, sa.created_at DESC
-                ),
-                sector_ult AS (
-                  SELECT DISTINCT ON (su.id)
-                      su.id AS vivienda_id,
-                      NULLIF(
-                        CASE
-                          WHEN jsonb_typeof(sa.data->'value') = 'object' THEN sa.data->'value'->>'label'
-                          ELSE sa.data->>'value'
-                        END,
-                      '') AS sector,
-                      sa.created_at
-                  FROM survey_answer sa
-                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-                  WHERE sa.survey_question_id IN (477, 863)
-                  ORDER BY su.id, sa.created_at DESC
-                )
-                SELECT
-                  c.vivienda_id,
-                  c.latitud,
-                  c.longitud,
-                  COALESCE(s.sector, 'SIN SECTOR') AS sector
-                FROM coords c
-                LEFT JOIN sector_ult s USING (vivienda_id);
-            """)
-            cols = [col[0] for col in cursor.description]
-            sectores = [dict(zip(cols, row)) for row in cursor.fetchall()]
-
-        # === Personas (con coordenadas) ===
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                WITH coords AS (
-                  SELECT DISTINCT ON (su.id)
-                      su.id AS vivienda_id,
-                      (sa.data->'value'->>'latitude')::numeric  AS latitud,
-                      (sa.data->'value'->>'longitude')::numeric AS longitud,
-                      sa.created_at
-                  FROM survey_answer sa
-                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-                  WHERE sa.survey_question_id = 55
-                    AND jsonb_typeof(sa.data->'value') = 'object'
-                    AND sa.data->'value'->>'latitude' IS NOT NULL
-                    AND sa.data->'value'->>'longitude' IS NOT NULL
-                  ORDER BY su.id, sa.created_at DESC
-                ),
-                personas_ult AS (
-                  SELECT DISTINCT ON (su.id)
-                      su.id AS vivienda_id,
-                      CASE
-                        WHEN sa.data ? 'value' AND (sa.data->>'value') ~ '^[0-9]+$'
-                          THEN (sa.data->>'value')::int
-                        WHEN jsonb_typeof(sa.data->'value') = 'object'
-                             AND (sa.data->'value'->>'cantidad') ~ '^[0-9]+$'
-                          THEN (sa.data->'value'->>'cantidad')::int
-                        ELSE NULL
-                      END AS total_personas,
-                      sa.created_at
-                  FROM survey_answer sa
-                  JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-                  WHERE sa.survey_question_id = 100  -- id real de población
-                  ORDER BY su.id, sa.created_at DESC
-                )
-                SELECT
-                  c.vivienda_id,
-                  c.latitud,
-                  c.longitud,
-                  COALESCE(p.total_personas, 0) AS total_personas
-                FROM coords c
-                LEFT JOIN personas_ult p USING (vivienda_id);
-            """)
-            cols = [col[0] for col in cursor.description]
-            personas = [dict(zip(cols, row)) for row in cursor.fetchall()]
-
-        # === Centro del mapa ===
-        if viviendas:
-            latitudes = [v["latitud"] for v in viviendas if v["latitud"]]
-            longitudes = [v["longitud"] for v in viviendas if v["longitud"]]
-            lat_centro = sum(latitudes) / len(latitudes)
-            lon_centro = sum(longitudes) / len(longitudes)
-        else:
-            lat_centro, lon_centro = 4.65, -74.1
-
-        # === Crear mapa ===
-        m = folium.Map(location=[lat_centro, lon_centro], zoom_start=12, tiles=None, attributionControl = False)
-
-        # Capas base
-        mapas_base = [
-            ("Esri World Imagery",
-             "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-             "Tiles © Esri — Source: Esri, Earthstar Geographics, GeoEye"),
-            ("OpenStreetMap",
-             "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-             "© OpenStreetMap contributors"),
-        ]
-        for nombre, url, attr in mapas_base:
-            folium.TileLayer(tiles=url, name=nombre, attr=attr, overlay=False).add_to(m)
-
-        # === Capa viviendas ===
-        capa_viviendas = folium.FeatureGroup(name="Viviendas", show=True)
-        cluster = MarkerCluster().add_to(capa_viviendas)
-        for v in viviendas:
-            if not v["latitud"] or not v["longitud"]:
-                continue
-            folium.CircleMarker(
-                [v["latitud"], v["longitud"]],
-                radius=5,
-                color="blue",
-                fill=True,
-                fill_color="blue",
-                fill_opacity=0.6,
-                popup=f"Vivienda {v['vivienda_id']}<br>{v['created_at']}"
-            ).add_to(cluster)
-        capa_viviendas.add_to(m)
-
-        # === Capa sectores ===
-        capa_sectores = folium.FeatureGroup(name="Sectores", show=False)
-        for s in sectores:
-            if not s["latitud"] or not s["longitud"]:
-                continue
-            folium.Marker(
-                [s["latitud"], s["longitud"]],
-                icon=folium.Icon(color="purple", icon="home"),
-                popup=f"Vivienda {s['vivienda_id']}<br>Sector: {s['sector']}"
-            ).add_to(capa_sectores)
-        capa_sectores.add_to(m)
-
-        # === Capa población ===
-        capa_personas = folium.FeatureGroup(name="Población", show=False)
-        for p in personas:
-            if not p["latitud"] or not p["longitud"]:
-                continue
-            folium.CircleMarker(
-                [p["latitud"], p["longitud"]],
-                radius=3 + (p["total_personas"] or 0),  # radio proporcional
-                color="red",
-                fill=True,
-                fill_color="red",
-                fill_opacity=0.6,
-                popup=f"Vivienda {p['vivienda_id']}<br>Personas: {p['total_personas']}"
-            ).add_to(capa_personas)
-        capa_personas.add_to(m)
-
-        # === Heatmap ===
-        heat_data = [[p["latitud"], p["longitud"], p["total_personas"]] for p in personas if p["latitud"] and p["longitud"]]
-        if heat_data:
-            HeatMap(heat_data, radius=12, blur=8, min_opacity=0.4, name="Densidad poblacional").add_to(m)
-
-        # Control de capas
-        folium.LayerControl(collapsed=False).add_to(m)
-
-        context["mapa"] = m._repr_html_()
-        return context
-
-def total_encuestas_realtime(request):
-    query = """
-        SELECT COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
-        FROM survey_answer sa
-        INNER JOIN survey_surveyuser su 
-            ON sa.survey_user_id = su.id
-        WHERE su.survey_id IN (18, 30, 31)                -- solo encuestas 18 y 30
-          AND sa.created_at::date = CURRENT_DATE;     -- solo encuestas de hoy
-    """
+    template_name = "generales/monitoreo.html"
     
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        row = cursor.fetchone()
     
-    total = row[0] if row else 0
-    
-    return JsonResponse({
-        "total_encuestas": total
-    })
 
-def encuestas_sector_477(request):
-    query = """
-       SELECT
-            COALESCE(sa.data->>'value', 'SIN SECTOR') AS sector,
-            COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
-        FROM survey_answer sa
-        WHERE sa.survey_question_id IN (477, 863)   -- sector puede venir de cualquiera
-        AND sa.created_at::date = CURRENT_DATE
-        GROUP BY ROLLUP (sa.data->>'value')
-        ORDER BY sector;
-    """
-    
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        rows = cursor.fetchall()
-    
-    # Convertimos a lista de dicts [{sector: "1", total: 38}, ...]
-    sectores = [{"sector": row[0], "total": row[1]} for row in rows]
+import os
+import psycopg2
+import pandas as pd
 
-    return JsonResponse({
-        "pregunta_id": 477,
-        "sectores": sectores
-    })
+DB_CONFIG = {
+    "dbname": os.environ.get("SURVEY_DB_NAME", "smt_data_db"),
+    "user": os.environ.get("SURVEY_DB_USER", "smt_data_user"),
+    "password": os.environ.get("SURVEY_DB_PASS", "smt_data_pass"),
+    "host": os.environ.get("SURVEY_DB_HOST", "data.smt-onic.com"),
+    "port": os.environ.get("SURVEY_DB_PORT", "5431"),
+}
 
 
-def encuestas_viviendas(request):
-    """
-    Retorna cuántas encuestas tienen la pregunta con id = 122 (viviendas)
-    para las encuestas con survey_id 18 y 30.
-    """
-    query = """
-        SELECT COUNT(DISTINCT sa.data->>'value') AS total_viviendas
-            FROM survey_answer sa
-            JOIN survey_surveyuser su 
-            ON sa.survey_user_id = su.id
-            WHERE su.survey_id IN (18, 30)
-            AND sa.survey_question_id IN (614, 615, 616)
-            AND sa.created_at::date = CURRENT_DATE;
-    """
 
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        row = cursor.fetchone()
+# ==========
+# Endpoint de datos
+# ==========
+DB_CONFIG = {
+    "dbname": "smt_data_db",
+    "user": "smt_data_user",
+    "password": "smt_data_pass",
+    "host": "data.smt-onic.com",
+    "port": "5431",
+}
 
-    total_viviendas = row[0] if row else 0
 
-    return JsonResponse({
-        "pregunta_id": 122,
-        "total_viviendas": total_viviendas
-    })
-    
-def total_personas_realtime(request):
-    query = """
-        WITH latest AS (
-          SELECT DISTINCT ON (sa.survey_user_id)
-                 sa.survey_user_id,
-                 TRIM(sa.data->>'value') AS v
-          FROM survey_answer sa
-          JOIN survey_surveyuser su ON sa.survey_user_id = su.id
-          WHERE su.survey_id IN (18, 30)
-            AND sa.survey_question_id = 600
-            AND sa.created_at::date = CURRENT_DATE
-          ORDER BY sa.survey_user_id, sa.created_at DESC
-        )
-        SELECT COALESCE(SUM((NULLIF(regexp_replace(v, '\\D', '', 'g'), ''))::int), 0) AS total_personas
-        FROM latest;
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        row = cursor.fetchone()
+def monitoreo_dashboard(request):
+    return render(request, "generales/monitoreo.html")
 
-    total = row[0] if row and row[0] is not None else 0
-    return JsonResponse({"total_personas": total})
 
-def encuestas_por_usuario_hoy(request):
-    """
-    Devuelve encuestas agrupadas por usuario para la fecha actual.
-    """
-    query = """
-        SELECT 
-            u.id AS usuario_id,
-            u.username AS usuario_login,
-            (u.first_name || ' ' || u.last_name) AS usuario_nombre,
-            COUNT(DISTINCT su.id) AS total_encuestas_hoy
+def monitoreo_data(request):
+    conn = psycopg2.connect(**DB_CONFIG)
+
+    # --- Encuestas por censista ---
+    q1 = """
+        SELECT su.user_id,
+               CONCAT(u.first_name, ' ', u.last_name) AS nombre_completo,
+               COUNT(*) AS total_encuestas
         FROM survey_surveyuser su
-        JOIN auth_user u 
-            ON su.user_id = u.id
-        JOIN survey_answer sa 
-            ON sa.survey_user_id = su.id
-        WHERE su.survey_id IN (18, 30)
-          AND sa.created_at::date = CURRENT_DATE
-        GROUP BY u.id, u.username, u.first_name, u.last_name
-        ORDER BY total_encuestas_hoy DESC;
+        JOIN auth_user u ON su.user_id = u.id
+        WHERE su.created_at::date = CURRENT_DATE
+        GROUP BY su.user_id, u.first_name, u.last_name
+        ORDER BY total_encuestas DESC;
     """
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
+    df_censistas = pd.read_sql(q1, conn)
+    df_censistas["convencion"] = df_censistas["user_id"]
 
-    data = [dict(zip(columns, row)) for row in rows]
-    return JsonResponse({"encuestas": data})
+    # --- Sectores ---
+    q2 = """
+        SELECT sa.data->>'value' AS sector,
+               COUNT(*) AS total
+        FROM survey_answer sa
+        JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+        WHERE su.created_at::date = CURRENT_DATE
+          AND sa.survey_question_id IN (477, 863)
+        GROUP BY sector;
+    """
+    df_sectores = pd.read_sql(q2, conn)
+
+    # --- Viviendas distintas ---
+    q3 = """
+        SELECT COUNT(DISTINCT sa.data->>'value') AS total_viviendas
+        FROM survey_answer sa
+        JOIN survey_surveyuser su ON sa.survey_user_id = su.id
+        WHERE su.created_at::date = CURRENT_DATE
+          AND sa.survey_question_id IN (614, 615, 616);
+    """
+    df_viviendas = pd.read_sql(q3, conn)
+
+    # --- Total encuestas ---
+    q4 = """
+        SELECT COUNT(*) AS total_encuestas
+        FROM survey_surveyuser su
+        WHERE su.created_at::date = CURRENT_DATE;
+    """
+    df_total = pd.read_sql(q4, conn)
+
+    conn.close()
+
+    # --- Convenciones ---
+    convenciones = df_censistas[["user_id", "nombre_completo", "total_encuestas"]].drop_duplicates()
+    convenciones = convenciones.to_dict(orient="records")
+
+    # --- Respuesta JSON ---
+    return JsonResponse({
+        "kpis": {
+            "total_encuestas": int(df_total["total_encuestas"].iloc[0]) if not df_total.empty else 0,
+            "total_viviendas": int(df_viviendas["total_viviendas"].iloc[0]) if not df_viviendas.empty else 0,
+            "total_sectores": int(df_sectores["sector"].nunique()) if not df_sectores.empty else 0,
+        },
+        "censistas": df_censistas.to_dict(orient="records"),
+        "sectores": df_sectores.to_dict(orient="records"),
+        "convenciones": convenciones
+    })
