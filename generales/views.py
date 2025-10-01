@@ -28,7 +28,7 @@ def monitoreo_data(request):
     q_total = """
         SELECT COUNT(survey_id) AS total_encuestas
         FROM survey_surveyuser 
-        WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date = CURRENT_DATE
+        WHERE created_at::date = CURRENT_DATE
     """
     df_total = pd.read_sql(q_total, conn)
     total_encuestas = int(df_total["total_encuestas"].iloc[0]) if not df_total.empty else 0
@@ -37,7 +37,7 @@ def monitoreo_data(request):
     q_viviendas = """
         SELECT COUNT(DISTINCT TRIM(data->>'value')) AS total_viviendas
         FROM survey_answer
-        WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date = CURRENT_DATE
+        WHERE created_at::date = CURRENT_DATE
           AND survey_id IN (18, 30, 31)
           AND survey_question_id IN (614, 615, 616);
     """
@@ -48,7 +48,7 @@ def monitoreo_data(request):
     q_sectores = """
         SELECT (data->>'value') AS sector, COUNT(*) AS total
         FROM survey_answer
-        WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date = CURRENT_DATE
+        WHERE created_at::date = CURRENT_DATE
           AND survey_id IN (18, 30, 31)
           AND survey_question_id IN (477, 863)
         GROUP BY data->>'value';
@@ -63,7 +63,7 @@ def monitoreo_data(request):
                COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
         FROM survey_answer sa
         JOIN auth_user u ON u.id = sa.user_id
-        WHERE (sa.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date = CURRENT_DATE
+        WHERE sa.created_at::date = CURRENT_DATE
           AND sa.survey_id IN (18, 30, 31)
         GROUP BY sa.user_id, u.first_name, u.last_name
         ORDER BY total_encuestas DESC;
@@ -149,7 +149,7 @@ def exportar_consolidado_excel_dia(request):
                sa.survey_question_id, sa.data, sa.created_at
         FROM survey_answer sa
         WHERE sa.survey_id IN (18, 30, 31)
-          AND (sa.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date = CURRENT_DATE;
+          AND sa.created_at::date = CURRENT_DATE;
     """
     df = pd.read_sql(q, conn)
 
@@ -194,7 +194,7 @@ def reporte_censistas_data(request):
                COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
         FROM survey_answer sa
         JOIN auth_user u ON u.id = sa.user_id
-        WHERE (sa.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date 
+        WHERE sa.created_at::date 
               BETWEEN %s AND %s
           AND sa.survey_id IN (18, 30, 31)
         GROUP BY sa.user_id, u.first_name, u.last_name
