@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Consolidado de Encuestas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0f172a; color: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
+    .card { background: #1e293b; border-radius: 1rem; padding: 1rem; }
+  </style>
+</head>
+<body class="p-6">
+  <h1 class="text-3xl font-bold mb-4">📊 Consolidado de Encuestas</h1>
+  <p class="text-gray-400 mb-4">Visualiza y exporta todas las encuestas registradas.</p>
+
+  <div class="flex gap-4 mb-6">
+    <a href="{% url 'generales:dashboard-consolidado-exportar' %}"
+       class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white font-semibold shadow-lg hover:opacity-90">
+      ⬇️ Descargar Excel (Todo)
+    </a>
+
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="text-gray-400 border-b border-gray-600" id="header"></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <footer class="mt-8 text-xs text-gray-500">
+    Reporte consolidado generado en tiempo real desde <code>survey_answer</code>.
+  </footer>
+
+  <script>
+    async function cargarConsolidado() {
+      const res = await fetch("{% url 'generales:dashboard-consolidado-data' %}");
+      const data = await res.json();
+
+      // Crear cabecera
+      const header = document.getElementById("header");
+      header.innerHTML = "<tr>" + data.columnas.map(c => `<th class="px-2 py-1">${c}</th>`).join("") + "</tr>";
+
+      // Llenar filas
+      const body = document.getElementById("body");
+      body.innerHTML = "";
+      data.preview.forEach(row => {
+        body.innerHTML += "<tr class='border-b border-gray-700'>" +
+          data.columnas.map(c => `<td class="px-2 py-1">${row[c] ?? ""}</td>`).join("") +
+          "</tr>";
+      });
+    }
+
+    cargarConsolidado();
+  </script>
+</body>
+</html>

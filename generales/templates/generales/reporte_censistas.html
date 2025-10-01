@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Reporte de Censistas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body class="bg-slate-900 text-gray-100 min-h-screen flex flex-col items-center p-6">
+  <h1 class="text-3xl font-bold mb-6">📊 Reporte de Encuestas por Censista</h1>
+
+  <!-- Filtros -->
+  <form id="form-fechas" class="flex gap-4 mb-6">
+    <div>
+      <label class="block text-sm mb-1">Fecha inicio</label>
+      <input type="date" id="inicio" name="inicio" class="px-3 py-2 rounded bg-slate-800 text-white border border-slate-600">
+    </div>
+    <div>
+      <label class="block text-sm mb-1">Fecha fin</label>
+      <input type="date" id="fin" name="fin" class="px-3 py-2 rounded bg-slate-800 text-white border border-slate-600">
+    </div>
+    <button type="submit" class="px-6 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:scale-105 transition font-semibold">
+      🔎 Consultar
+    </button>
+  </form>
+
+  <!-- Gráfica -->
+  <div id="chart" class="w-full max-w-3xl h-[400px] mb-6"></div>
+
+  <!-- Tabla -->
+  <div class="w-full max-w-3xl bg-slate-800 p-4 rounded-lg shadow">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-600 text-gray-400">
+        <tr>
+          <th class="py-2 text-left">ID</th>
+          <th class="py-2 text-left">Nombre</th>
+          <th class="py-2 text-left">Total Encuestas</th>
+        </tr>
+      </thead>
+      <tbody id="tabla" class="divide-y divide-slate-700"></tbody>
+    </table>
+  </div>
+
+  <script>
+    document.getElementById("form-fechas").addEventListener("submit", async e => {
+      e.preventDefault();
+      const inicio = document.getElementById("inicio").value;
+      const fin = document.getElementById("fin").value;
+      const res = await fetch(`/dashboard/reporte-censistas/data/?inicio=${inicio}&fin=${fin}`);
+      const data = await res.json();
+
+      const tabla = document.getElementById("tabla");
+      tabla.innerHTML = "";
+      data.resultados.forEach(r => {
+        tabla.innerHTML += `
+          <tr>
+            <td class="py-2">${r.censista_id}</td>
+            <td class="py-2">${r.nombre_completo}</td>
+            <td class="py-2">${r.total_encuestas}</td>
+          </tr>`;
+      });
+
+      Plotly.newPlot("chart", [{
+        x: data.resultados.map(r => r.nombre_completo),
+        y: data.resultados.map(r => r.total_encuestas),
+        type: "bar",
+        marker: {color: "#6366f1"}
+      }], {
+        paper_bgcolor: "#0f172a",
+        plot_bgcolor: "#0f172a",
+        font: {color: "#e5e7eb"},
+        xaxis: {title: "Censista"},
+        yaxis: {title: "Encuestas"}
+      }, {displayModeBar:false});
+    });
+  </script>
+</body>
+</html>
