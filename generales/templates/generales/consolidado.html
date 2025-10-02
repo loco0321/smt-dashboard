@@ -123,7 +123,7 @@
       // === Gráfica sectores ===
       const sectores = payload.sectores || [];
       Plotly.react('chart-sectores', [{
-        labels: sectores.map(r => r.value),
+        labels: sectores.map(r => r.sector),
         values: sectores.map(r => r.total),
         type: 'pie',
         hole:.45
