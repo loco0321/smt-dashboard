@@ -114,20 +114,11 @@ def dashboard_consolidado_data(request):
 
     # === Sectores ===
     q_sectores = """
-        SELECT 
-            CASE sa.data->>'value'
-                WHEN '1' THEN 'PICHONERA'
-                WHEN '2' THEN 'PUEBLO NUEVO'
-                WHEN '3' THEN 'SAN MIGUEL'
-                WHEN '0' THEN 'SIN SECTOR'
-                ELSE sa.data->>'value'
-            END AS sector,
-            COUNT(*) AS total
-        FROM survey_answer sa
-        WHERE sa.survey_id IN (18, 30, 31)
-        AND sa.survey_question_id IN (477, 863)
-        GROUP BY sector
-        ORDER BY total DESC;
+        SELECT (data->>'value') AS sector, COUNT(*) AS total
+        FROM survey_answer
+        WHERE survey_id IN (18, 30, 31)
+        AND survey_question_id IN (477, 863)
+        GROUP BY data->>'value';
     """
     df_sectores = pd.read_sql(q_sectores, conn)
     sectores = df_sectores.to_dict(orient="records")
@@ -150,11 +141,11 @@ def dashboard_consolidado_data(request):
         "kpis": {
             "total_encuestas": total_encuestas,
             "total_viviendas": total_viviendas,
-            "total_sectores": len(sectores),
+            "total_sectores": len(sectores)
         },
-        "sectores": sectores,
         "censistas": censistas,
-        "convenciones": censistas,
+        "sectores": sectores,
+        "convenciones": censistas
     })
 
 def exportar_consolidado_excel(request):
