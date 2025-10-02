@@ -114,13 +114,22 @@ def dashboard_consolidado_data(request):
 
     # === Sectores ===
     q_sectores = """
-        SELECT (data->>'value') AS sector, COUNT(*) AS total
+        SELECT 
+            CASE data->>'value'
+                WHEN '1' THEN 'PICHONERA'
+                WHEN '2' THEN 'PUEBLO NUEVO'
+                WHEN '3' THEN 'SAN MIGUEL'
+                WHEN '0' THEN 'SIN ASIGNAR'
+                ELSE data->>'value'
+            END AS sector,
+            COUNT(*) AS total
         FROM survey_answer
-        WHERE survey_id IN %s
-          AND survey_question_id IN (477, 863)
-        GROUP BY data->>'value';
+        WHERE survey_id IN (18, 30, 31)
+        AND survey_question_id IN (477, 863)
+        GROUP BY sector
+        ORDER BY total DESC;
     """
-    df_sectores = pd.read_sql(q_sectores, conn, params=(SURVEY_IDS,))
+    df_sectores = pd.read_sql(q_sectores, conn)
     sectores = df_sectores.to_dict(orient="records")
 
     # === Censistas ===
