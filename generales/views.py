@@ -93,59 +93,60 @@ def dashboard_consolidado(request):
 def dashboard_consolidado_data(request):
     conn = connection
 
-    # === Total encuestas (sin filtro de fecha) ===
-    q_total = """
-        SELECT COUNT(DISTINCT survey_user_id) AS total_encuestas
-        FROM survey_answer
-        WHERE survey_id IN %s;
+    # === Base ===
+    q = """
+        SELECT sa.id, sa.survey_id, sa.survey_user_id, sa.user_id,
+               sa.survey_question_id, sa.data, sa.created_at
+        FROM survey_answer sa
+        WHERE sa.survey_id IN (18, 30, 31);
     """
-    df_total = pd.read_sql(q_total, conn, params=(SURVEY_IDS,))
-    total_encuestas = int(df_total["total_encuestas"].iloc[0]) if not df_total.empty else 0
+    df = pd.read_sql(q, conn)
+
+    if not df.empty:
+        df_json = pd.json_normalize(df["data"].apply(json.loads))
+        df = pd.concat([df.drop(columns=["data"]), df_json], axis=1)
+
+    # === Total encuestas ===
+    total_encuestas = df["survey_user_id"].nunique()
 
     # === Viviendas ===
-    q_viviendas = """
-        SELECT COUNT(DISTINCT TRIM(data->>'value')) AS total_viviendas
-        FROM survey_answer
-        WHERE survey_id IN %s
-          AND survey_question_id IN (614, 615, 616);
-    """
-    df_viviendas = pd.read_sql(q_viviendas, conn, params=(SURVEY_IDS,))
-    total_viviendas = int(df_viviendas["total_viviendas"].iloc[0]) if not df_viviendas.empty else 0
+    viviendas = df.loc[df["survey_question_id"].isin([614, 615, 616]), "value"].dropna().unique()
+    total_viviendas = len(viviendas)
 
     # === Sectores ===
     q_sectores = """
         SELECT (data->>'value') AS sector, COUNT(*) AS total
         FROM survey_answer
-        WHERE survey_id IN %s
-          AND survey_question_id IN (477, 863)
+        WHERE survey_id IN (18, 30, 31)
+        AND survey_question_id IN (477, 863)
         GROUP BY data->>'value';
     """
-    df_sectores = pd.read_sql(q_sectores, conn, params=(SURVEY_IDS,))
+    df_sectores = pd.read_sql(q_sectores, conn)
     sectores = df_sectores.to_dict(orient="records")
 
     # === Censistas ===
     q_censistas = """
         SELECT sa.user_id,
-        CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')) AS nombre_completo,
-        COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
+               CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')) AS nombre_completo,
+               COUNT(DISTINCT sa.survey_user_id) AS total_encuestas
         FROM survey_answer sa
         JOIN auth_user u ON u.id = sa.user_id
-        WHERE sa.survey_id IN %s
+        WHERE sa.survey_id IN (18, 30, 31)
         GROUP BY sa.user_id, u.first_name, u.last_name
         ORDER BY total_encuestas DESC;
     """
-    df_censistas = pd.read_sql(q_censistas, conn, params=(SURVEY_IDS,))
+    df_censistas = pd.read_sql(q_censistas, conn)
     censistas = df_censistas.to_dict(orient="records")
 
     return JsonResponse({
         "kpis": {
-            "total_encuestas": total_encuestas,
-            "total_viviendas": total_viviendas,
-            "total_sectores": len(sectores),
+            "total_encuestas": int(total_encuestas),
+            "total_viviendas": int(total_viviendas),
+            "total_sectores": len(sectores)
         },
         "sectores": sectores,
         "censistas": censistas,
-        "convenciones": censistas,
+        "convenciones": censistas
     })
 
 def exportar_consolidado_excel(request):
