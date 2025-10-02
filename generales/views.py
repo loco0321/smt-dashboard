@@ -115,17 +115,17 @@ def dashboard_consolidado_data(request):
     # === Sectores ===
     q_sectores = """
         SELECT 
-            CASE data->>'value'
+            CASE sa.data->>'value'
                 WHEN '1' THEN 'PICHONERA'
                 WHEN '2' THEN 'PUEBLO NUEVO'
                 WHEN '3' THEN 'SAN MIGUEL'
-                WHEN '0' THEN 'SIN ASIGNAR'
-                ELSE data->>'value'
+                WHEN '0' THEN 'SIN SECTOR'
+                ELSE sa.data->>'value'
             END AS sector,
             COUNT(*) AS total
-        FROM survey_answer
-        WHERE survey_id IN (18, 30, 31)
-        AND survey_question_id IN (477, 863)
+        FROM survey_answer sa
+        WHERE sa.survey_id IN (18, 30, 31)
+        AND sa.survey_question_id IN (477, 863)
         GROUP BY sector
         ORDER BY total DESC;
     """
