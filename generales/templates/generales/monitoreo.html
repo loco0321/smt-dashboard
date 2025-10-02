@@ -18,7 +18,7 @@
   <div class="max-w-7xl mx-auto px-4 py-8">
     <header class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
       <div>
-        <h1 class="text-3xl md:text-4xl font-bold">Monitoreo Diario de Encuestashhh</h1>
+        <h1 class="text-3xl md:text-4xl font-bold">Monitoreo Diario de Encuestas</h1>
         <p class="text-gray-400 mt-1">Datos del día actual (se actualiza cada 10 segundos)</p>
       </div>
 
@@ -217,6 +217,227 @@
   renderCharts();
   refresh();
   setInterval(refresh, 10000);
+</script>
+<script>
+(function () {
+  'use strict';
+
+  // === CONFIG ===
+  var DATA_URL    = '/dashboard/data/';
+  var GEOJSON_URL = '/static/base/geo/censo_chia_2025_verificacion.geojson';
+  var REFRESH_MS  = 10000;
+
+  // === ESTADO INTERNO (encapsulado) ===
+  var leafletMap = null;
+  var geoLayer   = null;
+
+  // ---------- Utilidades ----------
+  function safeNumber(n) {
+    return (typeof n === 'number' && isFinite(n)) ? n : 0;
+  }
+
+  // ---------- Datos ----------
+  function fetchDashboardData() {
+    return fetch(DATA_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .catch(function (err) {
+        console.error('[dashboard] Error fetch:', err);
+        return {};
+      });
+  }
+
+  // ---------- Gráficas ----------
+  function initCharts() {
+    Plotly.newPlot(
+      'chart-censistas',
+      [{ x: [], y: [], type: 'bar' }],
+      {
+        paper_bgcolor: '#111827',
+        plot_bgcolor:  '#111827',
+        font: { color: '#e5e7eb' },
+        xaxis: { title: "Censista (ID)", type: "category" },
+        yaxis: { title: "Encuestas" }
+      },
+      { displayModeBar: false }
+    );
+
+    Plotly.newPlot(
+      'chart-sectores',
+      [{ labels: [], values: [], type: 'pie', hole: .45 }],
+      { paper_bgcolor: '#111827', font: { color: '#e5e7eb' } },
+      { displayModeBar: false }
+    );
+  }
+
+  function updateUI(payload) {
+    payload = payload || {};
+    var kpis = payload.kpis || {};
+
+    // KPIs
+    var elTotal     = document.getElementById('kpi-total');
+    var elViviendas = document.getElementById('kpi-viviendas');
+    var elSectores  = document.getElementById('kpi-sectores');
+
+    if (elTotal)     elTotal.textContent     = safeNumber(kpis.total_encuestas).toLocaleString();
+    if (elViviendas) elViviendas.textContent = safeNumber(kpis.total_viviendas).toLocaleString();
+    if (elSectores)  elSectores.textContent  = safeNumber(kpis.total_sectores).toLocaleString();
+
+    // Gráfica: censistas
+    var censistas = Array.isArray(payload.censistas) ? payload.censistas : [];
+    Plotly.react(
+      'chart-censistas',
+      [{
+        x: censistas.map(function (r) { return String(r.convencion); }),
+        y: censistas.map(function (r) { return r.total_encuestas; }),
+        type: 'bar',
+        text: censistas.map(function (r) { return r.nombre_completo; }),
+        hoverinfo: 'text+y'
+      }],
+      {
+        paper_bgcolor: '#111827',
+        plot_bgcolor:  '#111827',
+        font: { color: '#e5e7eb' },
+        xaxis: { title: "Censista (ID)", type: "category" },
+        yaxis: { title: "Encuestas" }
+      },
+      { displayModeBar: false }
+    );
+
+    // Gráfica: sectores
+    var sectores = Array.isArray(payload.sectores) ? payload.sectores : [];
+    Plotly.react(
+      'chart-sectores',
+      [{
+        labels: sectores.map(function (r) { return r.sector; }),
+        values: sectores.map(function (r) { return r.total; }),
+        type: 'pie',
+        hole: .45
+      }],
+      { paper_bgcolor: '#111827', font: { color: '#e5e7eb' } },
+      { displayModeBar: false }
+    );
+
+    // Tabla: convenciones
+    var tbody = document.getElementById('tabla-convenciones');
+    if (tbody) {
+      var rows = Array.isArray(payload.convenciones) ? payload.convenciones : [];
+      var html = '';
+      rows.forEach(function (row) {
+        html += '' +
+          '<tr class="border-b border-gray-700">' +
+            '<td class="px-4 py-2">' + (row.convencion || '') + '</td>' +
+            '<td class="px-4 py-2">' + (row.nombre_completo || '') + '</td>' +
+            '<td class="px-4 py-2">' + (row.total_encuestas || 0) + '</td>' +
+          '</tr>';
+      });
+      tbody.innerHTML = html;
+    }
+  }
+  //---------------------------
+  //---------------------------
+  // ---------- Mapa ----------
+  function initMap() {
+    leafletMap = L.map('map', { attributionControl: false });
+
+    // Capas base
+    var baseCartoPositron = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+      }
+    );
+
+    var baseCartoDark = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+      }
+    );
+
+    var baseEsriImagery = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri, Maxar, Earthstar Geographics',
+        maxZoom: 20
+      }
+    );
+
+    // Por defecto: claro y limpio
+    baseCartoPositron.addTo(leafletMap);
+
+    // Selector de base
+    L.control.layers(
+      {
+        '🌐 Carto Positron (claro)': baseCartoPositron,
+        '🌑 Carto Dark': baseCartoDark,
+        '🛰️ Esri World Imagery': baseEsriImagery
+      },
+      null,
+      { collapsed: false }
+    ).addTo(leafletMap);
+
+    // Atribución propia
+    L.control.attribution({ position: 'bottomright', attributionControl: false })
+      .addAttribution('© Dashboard SMT-ONIC')
+      .addTo(leafletMap);
+
+    // Cargar GeoJSON (una sola vez)
+    fetch(GEOJSON_URL, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (geoLayer) { leafletMap.removeLayer(geoLayer); }
+        geoLayer = L.geoJSON(data, {
+          style: function () {
+            return { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.25 };
+          },
+          onEachFeature: function (feature, layer) {
+            var props = feature && feature.properties;
+            if (props) {
+              var info = '';
+              Object.keys(props).forEach(function (k) {
+                info += '<b>' + k + ':</b> ' + props[k] + '<br>';
+              });
+              if (info) layer.bindPopup(info);
+            }
+          }
+        }).addTo(leafletMap);
+
+        // Auto-zoom seguro
+        try {
+          var bounds = geoLayer.getBounds();
+          if (bounds && bounds.isValid && bounds.isValid()) {
+            leafletMap.fitBounds(bounds, { padding: [30, 30] });
+          } else {
+            leafletMap.setView([4.65, -74.1], 10); // Bogotá fallback
+          }
+        } catch (e) {
+          console.warn('[map] Bounds inválidos, usando fallback:', e);
+          leafletMap.setView([4.65, -74.1], 10);
+        }
+      })
+      .catch(function (err) {
+        console.error('[map] Error GeoJSON:', err);
+        leafletMap.setView([4.65, -74.1], 10);
+      });
+  }
+
+  // ---------- Loop de refresco ----------
+  function refreshLoop() {
+    fetchDashboardData().then(updateUI);
+  }
+
+  // ---------- Inicio ----------
+  document.addEventListener('DOMContentLoaded', function () {
+    initCharts();
+    initMap();
+    refreshLoop();
+    setInterval(refreshLoop, REFRESH_MS);
+  });
+})();
 </script>
 
 </body>

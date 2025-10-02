@@ -1,60 +1,177 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
   <title>Consolidado de Encuestas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
-    body { background-color: #0f172a; color: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
-    .card { background: #1e293b; border-radius: 1rem; padding: 1rem; }
+    body { background: #0f172a; }
+    .card { background: #111827; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .kpi { background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%); }
   </style>
 </head>
-<body class="p-6">
-  <h1 class="text-3xl font-bold mb-4">📊 Consolidado de Encuestas</h1>
-  <p class="text-gray-400 mb-4">Visualiza y exporta todas las encuestas registradas.</p>
+<body class="text-gray-100 min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <header class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
+      <div>
+        <h1 class="text-3xl md:text-4xl font-bold">Consolidado de Encuestas</h1>
+        <p class="text-gray-400 mt-1">Todos los datos acumulados en la base de encuestas</p>
+      </div>
 
-  <div class="flex gap-4 mb-6">
-    <a href="{% url 'generales:dashboard-consolidado-exportar' %}"
-       class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white font-semibold shadow-lg hover:opacity-90">
-      ⬇️ Descargar Excel (Todo)
-    </a>
-    <a href="{% url 'generales:dashboard-consolidado-exportar-dia' %}"
-       class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 rounded-lg text-white font-semibold shadow-lg hover:opacity-90">
-      ⬇️ Descargar Excel (Hoy)
-    </a>
+      <!-- Botones -->
+      <div class="mt-4 md:mt-0 flex gap-3">
+        <a href="{% url 'generales:dashboard-consolidado-exportar' %}" 
+           class="px-5 py-2 rounded-xl bg-gradient-to-r from-green-500 to-teal-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
+          ⬇️ Descargar Excel
+        </a>
+        <a href="{% url 'generales:home' %}" 
+           class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
+          🔄 Volver al Monitoreo
+        </a>
+      </div>
+    </header>
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total encuestas</p>
+        <p id="kpi-total" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total viviendas</p>
+        <p id="kpi-viviendas" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+      <div class="card kpi p-6">
+        <p class="text-sm text-gray-400">Total sectores</p>
+        <p id="kpi-sectores" class="text-4xl font-extrabold mt-2">—</p>
+      </div>
+    </section>
+
+    <!-- Charts -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+      <div class="card p-4">
+        <h2 class="text-lg font-semibold mb-2">Encuestas por censista</h2>
+        <div id="chart-censistas" class="w-full h-[360px]"></div>
+      </div>
+      <div class="card p-4">
+        <h2 class="text-lg font-semibold mb-2">Distribución por sectores</h2>
+        <div id="chart-sectores" class="w-full h-[360px]"></div>
+      </div>
+    </section>
+
+    <!-- Tabla de convenciones -->
+    <section class="card p-4 mt-6">
+      <h2 class="text-lg font-semibold mb-2">Convenciones de censistas</h2>
+      <table class="min-w-full text-sm text-left text-gray-300">
+        <thead class="text-gray-400 border-b border-gray-600">
+          <tr>
+            <th class="px-4 py-2">ID</th>
+            <th class="px-4 py-2">Nombre completo</th>
+            <th class="px-4 py-2">Total encuestas</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-convenciones"></tbody>
+      </table>
+    </section>
+
+    <!-- Preview de datos -->
+    <section class="card p-4 mt-6">
+      <h2 class="text-lg font-semibold mb-2">Vista previa de datos (50 filas)</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-xs text-left text-gray-300">
+          <thead id="preview-head" class="text-gray-400 border-b border-gray-600"></thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="mt-8 text-xs text-gray-500">
+      Reporte consolidado en tiempo real. Datos de <code>survey_answer</code>.
+    </footer>
   </div>
-
-  <div class="card overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="text-gray-400 border-b border-gray-600" id="header"></thead>
-      <tbody id="body"></tbody>
-    </table>
-  </div>
-
-  <footer class="mt-8 text-xs text-gray-500">
-    Reporte consolidado generado en tiempo real desde <code>survey_answer</code>.
-  </footer>
 
   <script>
-    async function cargarConsolidado() {
-      const res = await fetch("{% url 'generales:dashboard-consolidado-data' %}");
-      const data = await res.json();
-
-      // Crear cabecera
-      const header = document.getElementById("header");
-      header.innerHTML = "<tr>" + data.columnas.map(c => `<th class="px-2 py-1">${c}</th>`).join("") + "</tr>";
-
-      // Llenar filas
-      const body = document.getElementById("body");
-      body.innerHTML = "";
-      data.preview.forEach(row => {
-        body.innerHTML += "<tr class='border-b border-gray-700'>" +
-          data.columnas.map(c => `<td class="px-2 py-1">${row[c] ?? ""}</td>`).join("") +
-          "</tr>";
-      });
+    async function fetchData() {
+      const res = await fetch('/dashboard/consolidado/data/');
+      return res.json();
     }
 
-    cargarConsolidado();
+    function updateUI(payload) {
+      // === KPIs ===
+      document.getElementById('kpi-total').textContent = (payload.kpis.total_encuestas ?? 0).toLocaleString();
+      document.getElementById('kpi-viviendas').textContent = (payload.kpis.total_viviendas ?? 0).toLocaleString();
+      document.getElementById('kpi-sectores').textContent = (payload.kpis.total_sectores ?? 0).toLocaleString();
+
+      // === Gráfica censistas ===
+      const censistas = payload.censistas || [];
+      Plotly.react('chart-censistas', [{
+        x: censistas.map(r => String(r.user_id)),
+        y: censistas.map(r => r.total_encuestas),
+        type: 'bar',
+        text: censistas.map(r => r.nombre_completo),
+        hoverinfo: 'text+y'
+      }], {
+        paper_bgcolor:'#111827',
+        plot_bgcolor:'#111827',
+        font:{color:'#e5e7eb'},
+        xaxis:{title:"Censista (ID)", type:"category"},
+        yaxis:{title:"Encuestas"}
+      }, {displayModeBar:false});
+
+      // === Gráfica sectores ===
+      const sectores = payload.sectores || [];
+      Plotly.react('chart-sectores', [{
+        labels: sectores.map(r => r.value),
+        values: sectores.map(r => r.total),
+        type: 'pie',
+        hole:.45
+      }], {
+        paper_bgcolor:'#111827',
+        font:{color:'#e5e7eb'}
+      }, {displayModeBar:false});
+
+      // === Tabla convenciones ===
+      const tbody = document.getElementById('tabla-convenciones');
+      tbody.innerHTML = '';
+      (payload.convenciones || []).forEach(row => {
+        tbody.innerHTML += `
+          <tr class="border-b border-gray-700">
+            <td class="px-4 py-2">${row.user_id}</td>
+            <td class="px-4 py-2">${row.nombre_completo ?? "—"}</td>
+            <td class="px-4 py-2">${row.total_encuestas}</td>
+          </tr>`;
+      });
+
+      // === Preview de datos ===
+      const previewHead = document.getElementById('preview-head');
+      const previewBody = document.getElementById('preview-body');
+      previewHead.innerHTML = '';
+      previewBody.innerHTML = '';
+
+      if(payload.preview && payload.preview.length > 0){
+        const cols = payload.columnas || Object.keys(payload.preview[0]);
+        previewHead.innerHTML = '<tr>' + cols.map(c => `<th class="px-2 py-1">${c}</th>`).join('') + '</tr>';
+        payload.preview.forEach(row => {
+          previewBody.innerHTML += '<tr class="border-b border-gray-700">' +
+            cols.map(c => `<td class="px-2 py-1">${row[c] ?? ""}</td>`).join('') +
+          '</tr>';
+        });
+      }
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetchData();
+        updateUI(data);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 15000); // refrescar cada 15s
   </script>
 </body>
 </html>
