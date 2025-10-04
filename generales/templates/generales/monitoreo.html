@@ -94,349 +94,220 @@
   </div>
 
 <script>
-  // === FUNCIONES DE DATOS ===
+/* === DASHBOARD DE MONITOREO SMT-ONIC === */
+(async function () {
+  'use strict';
+
+  // === CONFIGURACIÓN ===
+  const DATA_URL    = '/dashboard/data/';
+  const GEOJSON_URL = '/static/base/geo/censo_chia_2025_verificacion.geojson';
+  const REFRESH_MS  = 10000; // cada 10 segundos
+
+  const safeNum = n => (typeof n === 'number' && isFinite(n)) ? n : 0;
+
   async function fetchData() {
     try {
-      const res = await fetch('/dashboard/data/');
+      const res = await fetch(DATA_URL, { cache: 'no-store' });
       return await res.json();
-    } catch (e) {
-      console.error("Error obteniendo datos:", e);
+    } catch (err) {
+      console.error('[fetchData] Error:', err);
       return {};
     }
   }
 
-  // === RENDER INICIAL DE CHARTS ===
+  /* === CHARTS === */
   function renderCharts() {
-    Plotly.newPlot('chart-censistas', [{ x: [], y: [], type: 'bar' }], {
-      paper_bgcolor: '#111827',
-      plot_bgcolor: '#111827',
-      font: { color: '#e5e7eb' }
-    }, { displayModeBar: false });
+    Plotly.newPlot('chart-censistas', [{ x: [], y: [], type: 'bar' }],
+      { paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{color:'#e5e7eb'} },
+      { displayModeBar:false });
 
-    Plotly.newPlot('chart-sectores', [{ labels: [], values: [], type: 'pie', hole: .45 }], {
-      paper_bgcolor: '#111827',
-      font: { color: '#e5e7eb' }
-    }, { displayModeBar: false });
+    Plotly.newPlot('chart-sectores', [{ labels: [], values: [], type: 'pie', hole:.45 }],
+      { paper_bgcolor:'#111827', font:{color:'#e5e7eb'} },
+      { displayModeBar:false });
   }
 
-  // === ACTUALIZAR INTERFAZ ===
-  function updateUI(payload) {
-    // KPIs
-    document.getElementById('kpi-total').textContent =
-      (payload.kpis?.total_encuestas ?? 0).toLocaleString();
-    document.getElementById('kpi-viviendas').textContent =
-      (payload.kpis?.total_viviendas ?? 0).toLocaleString();
-    document.getElementById('kpi-sectores').textContent =
-      (payload.kpis?.total_sectores ?? 0).toLocaleString();
-
-    // Gráfica de censistas
-    const censistas = payload.censistas || [];
+  function updateCharts(data) {
+    const censistas = data.censistas || [];
     Plotly.react('chart-censistas', [{
-      x: censistas.map(r => String(r.convencion)),
-      y: censistas.map(r => r.total_encuestas),
+      x: censistas.map(r => String(r.convencion || '')),
+      y: censistas.map(r => safeNum(r.total_encuestas)),
       type: 'bar',
-      text: censistas.map(r => r.nombre_completo),
+      text: censistas.map(r => r.nombre_completo || ''),
       hoverinfo: 'text+y'
     }], {
-      paper_bgcolor: '#111827',
-      plot_bgcolor: '#111827',
-      font: { color: '#e5e7eb' },
-      xaxis: { title: "Censista (ID)", type: "category" },
-      yaxis: { title: "Encuestas" }
-    }, { displayModeBar: false });
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{color:'#e5e7eb'},
+      xaxis:{title:"Censista (ID)", type:"category"},
+      yaxis:{title:"Encuestas"}
+    }, {displayModeBar:false});
 
-    // Gráfica de sectores
-    const sectores = payload.sectores || [];
+    const sectores = data.sectores || [];
     Plotly.react('chart-sectores', [{
-      labels: sectores.map(r => r.sector),
-      values: sectores.map(r => r.total),
-      type: 'pie',
-      hole: .45
+      labels: sectores.map(r => r.sector || 'Sin nombre'),
+      values: sectores.map(r => safeNum(r.total)),
+      type: 'pie', hole:.45
     }], {
-      paper_bgcolor: '#111827',
-      font: { color: '#e5e7eb' }
-    }, { displayModeBar: false });
+      paper_bgcolor:'#111827',
+      font:{color:'#e5e7eb'}
+    }, {displayModeBar:false});
+  }
 
-    // Tabla de convenciones
+  /* === TABLA CONVENCIONES === */
+  function updateConvenciones(data) {
     const tbody = document.getElementById('tabla-convenciones');
     tbody.innerHTML = '';
-    (payload.convenciones || []).forEach(row => {
+    (data.convenciones || []).forEach(row => {
       tbody.innerHTML += `
         <tr class="border-b border-gray-700">
-          <td class="px-4 py-2">${row.convencion}</td>
-          <td class="px-4 py-2">${row.nombre_completo}</td>
-          <td class="px-4 py-2">${row.total_encuestas}</td>
+          <td class="px-4 py-2">${row.convencion ?? ''}</td>
+          <td class="px-4 py-2">${row.nombre_completo ?? ''}</td>
+          <td class="px-4 py-2">${safeNum(row.total_encuestas)}</td>
         </tr>`;
     });
   }
 
-  // === MAPA (CARTO DARK + GEOJSON FIJO) ===
+  /* === MAPA === */
   let map = L.map('map', { attributionControl: false });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19
-}).addTo(map);
-
+    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
 
   L.control.attribution({ position: 'bottomright' })
-    .addAttribution("© Dashboard SMT-ONIC")
+    .addAttribution('© Dashboard SMT-ONIC')
     .addTo(map);
 
-  // Cargar archivo fijo GeoJSON
-  fetch("/static/base/geo/censo_chia_2025_verificacion.geojson")
-    .then(res => res.json())
-    .then(data => {
-      let geoLayer = L.geoJSON(data, {
-        style: {
-          color: "#38bdf8",   // borde azul claro
-          weight: 2,
-          fillColor: "#0ea5e9", // relleno celeste
-          fillOpacity: 0.3
-        },
-        onEachFeature: (feature, layer) => {
-          if (feature.properties) {
-            let info = Object.entries(feature.properties)
-              .map(([k, v]) => `<b>${k}:</b> ${v}`)
-              .join("<br>");
-            layer.bindPopup(info);
-          }
+  let markerLayer = L.layerGroup().addTo(map);
+
+  // === ÍCONOS CSS DINÁMICOS ===
+  function getIcon(tipo) {
+    tipo = (tipo || '').toLowerCase();
+
+    if (tipo.includes('vivienda')) {
+      return L.divIcon({
+        html: `<div style="
+          width:24px;height:24px;
+          background:#2563eb;
+          clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);
+          border:2px solid white;
+          box-shadow:0 0 6px rgba(0,0,0,0.4);
+        "></div>`,
+        className: '',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+    }
+
+    if (tipo.includes('establo') || tipo.includes('pesebrera') || tipo.includes('galpón')) {
+      return L.divIcon({
+        html: `<div style="
+          width:22px;height:22px;
+          background:#16a34a;
+          border-radius:4px;
+          border:2px solid white;
+          box-shadow:0 0 6px rgba(0,0,0,0.4);
+        "></div>`,
+        className: '',
+        iconSize: [22, 22],
+        iconAnchor: [11, 22]
+      });
+    }
+
+    return L.divIcon({
+      html: `<div style="
+        width:18px;height:18px;
+        background:#f59e0b;
+        border-radius:50%;
+        border:2px solid white;
+        box-shadow:0 0 6px rgba(0,0,0,0.4);
+      "></div>`,
+      className: '',
+      iconSize: [18, 18],
+      iconAnchor: [9, 18]
+    });
+  }
+
+  // === CARGAR GEOJSON ===
+  async function renderMap() {
+    try {
+      const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
+      const data = await res.json();
+
+      markerLayer.clearLayers();
+
+      const geoLayer = L.geoJSON(data, {
+        pointToLayer: (feature, latlng) => {
+          const tipo = feature.properties?.que_tipo_de_construccion_es_3 || '';
+          const icon = getIcon(tipo);
+          const marker = L.marker(latlng, { icon });
+
+          const info = Object.entries(feature.properties || {})
+            .map(([k, v]) => `<b>${k}:</b> ${v}`)
+            .join('<br>');
+          marker.bindPopup(info);
+
+          return marker;
         }
-      }).addTo(map);
+      }).addTo(markerLayer);
 
-      map.fitBounds(geoLayer.getBounds());
-    })
-    .catch(err => console.error("Error cargando GeoJSON:", err));
+      const bounds = geoLayer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+      } else {
+        map.setView([4.65, -74.1], 11);
+      }
 
-  // === REFRESCAR DATOS CADA 10 SEGUNDOS ===
-  async function refresh() {
-    const data = await fetchData();
-    updateUI(data);
-  }
+      // === LEYENDA VISUAL ===
+      const legend = L.control({ position: 'bottomleft' });
+      legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend bg-gray-900/80 text-white p-3 rounded-xl shadow-lg text-sm');
+        div.innerHTML = `
+          <h4 class="font-semibold mb-1 text-indigo-300">🔍 Leyenda</h4>
+          <div class="flex items-center gap-2 mb-1">
+            <div style="width:18px;height:18px;background:#2563eb;clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);border:1px solid white;"></div>
+            Vivienda
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <div style="width:16px;height:16px;background:#16a34a;border-radius:4px;border:1px solid white;"></div>
+            Establo / Pesebrera / Galpón
+          </div>
+          <div class="flex items-center gap-2">
+            <div style="width:14px;height:14px;background:#f59e0b;border-radius:50%;border:1px solid white;"></div>
+            Otro tipo
+          </div>`;
+        return div;
+      };
+      legend.addTo(map);
 
-  // Inicializar
-  renderCharts();
-  refresh();
-  setInterval(refresh, 10000);
-</script>
-<script>
-(function () {
-  'use strict';
-
-  // === CONFIG ===
-  var DATA_URL    = '/dashboard/data/';
-  var GEOJSON_URL = '/static/base/geo/censo_chia_2025_verificacion.geojson';
-  var REFRESH_MS  = 10000;
-
-  // === ESTADO INTERNO (encapsulado) ===
-  var leafletMap = null;
-  var geoLayer   = null;
-
-  // ---------- Utilidades ----------
-  function safeNumber(n) {
-    return (typeof n === 'number' && isFinite(n)) ? n : 0;
-  }
-
-  // ---------- Datos ----------
-  function fetchDashboardData() {
-    return fetch(DATA_URL, { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
-      .catch(function (err) {
-        console.error('[dashboard] Error fetch:', err);
-        return {};
-      });
-  }
-
-  // ---------- Gráficas ----------
-  function initCharts() {
-    Plotly.newPlot(
-      'chart-censistas',
-      [{ x: [], y: [], type: 'bar' }],
-      {
-        paper_bgcolor: '#111827',
-        plot_bgcolor:  '#111827',
-        font: { color: '#e5e7eb' },
-        xaxis: { title: "Censista (ID)", type: "category" },
-        yaxis: { title: "Encuestas" }
-      },
-      { displayModeBar: false }
-    );
-
-    Plotly.newPlot(
-      'chart-sectores',
-      [{ labels: [], values: [], type: 'pie', hole: .45 }],
-      { paper_bgcolor: '#111827', font: { color: '#e5e7eb' } },
-      { displayModeBar: false }
-    );
-  }
-
-  function updateUI(payload) {
-    payload = payload || {};
-    var kpis = payload.kpis || {};
-
-    // KPIs
-    var elTotal     = document.getElementById('kpi-total');
-    var elViviendas = document.getElementById('kpi-viviendas');
-    var elSectores  = document.getElementById('kpi-sectores');
-
-    if (elTotal)     elTotal.textContent     = safeNumber(kpis.total_encuestas).toLocaleString();
-    if (elViviendas) elViviendas.textContent = safeNumber(kpis.total_viviendas).toLocaleString();
-    if (elSectores)  elSectores.textContent  = safeNumber(kpis.total_sectores).toLocaleString();
-
-    // Gráfica: censistas
-    var censistas = Array.isArray(payload.censistas) ? payload.censistas : [];
-    Plotly.react(
-      'chart-censistas',
-      [{
-        x: censistas.map(function (r) { return String(r.convencion); }),
-        y: censistas.map(function (r) { return r.total_encuestas; }),
-        type: 'bar',
-        text: censistas.map(function (r) { return r.nombre_completo; }),
-        hoverinfo: 'text+y'
-      }],
-      {
-        paper_bgcolor: '#111827',
-        plot_bgcolor:  '#111827',
-        font: { color: '#e5e7eb' },
-        xaxis: { title: "Censista (ID)", type: "category" },
-        yaxis: { title: "Encuestas" }
-      },
-      { displayModeBar: false }
-    );
-
-    // Gráfica: sectores
-    var sectores = Array.isArray(payload.sectores) ? payload.sectores : [];
-    Plotly.react(
-      'chart-sectores',
-      [{
-        labels: sectores.map(function (r) { return r.sector; }),
-        values: sectores.map(function (r) { return r.total; }),
-        type: 'pie',
-        hole: .45
-      }],
-      { paper_bgcolor: '#111827', font: { color: '#e5e7eb' } },
-      { displayModeBar: false }
-    );
-
-    // Tabla: convenciones
-    var tbody = document.getElementById('tabla-convenciones');
-    if (tbody) {
-      var rows = Array.isArray(payload.convenciones) ? payload.convenciones : [];
-      var html = '';
-      rows.forEach(function (row) {
-        html += '' +
-          '<tr class="border-b border-gray-700">' +
-            '<td class="px-4 py-2">' + (row.convencion || '') + '</td>' +
-            '<td class="px-4 py-2">' + (row.nombre_completo || '') + '</td>' +
-            '<td class="px-4 py-2">' + (row.total_encuestas || 0) + '</td>' +
-          '</tr>';
-      });
-      tbody.innerHTML = html;
+    } catch (err) {
+      console.error('[renderMap] Error:', err);
+      map.setView([4.65, -74.1], 11);
     }
   }
-  //---------------------------
-  //---------------------------
-  // ---------- Mapa ----------
-  function initMap() {
-    leafletMap = L.map('map', { attributionControl: false });
 
-    // Capas base
-    var baseCartoPositron = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-      {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 20
-      }
-    );
+  /* === REFRESCAR DATOS === */
+  async function refreshAll() {
+    const data = await fetchData();
 
-    var baseCartoDark = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 20
-      }
-    );
+    document.getElementById('kpi-total').textContent =
+      safeNum(data.kpis?.total_encuestas).toLocaleString();
+    document.getElementById('kpi-viviendas').textContent =
+      safeNum(data.kpis?.total_viviendas).toLocaleString();
+    document.getElementById('kpi-sectores').textContent =
+      safeNum(data.kpis?.total_sectores).toLocaleString();
 
-    var baseEsriImagery = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        attribution: 'Tiles &copy; Esri, Maxar, Earthstar Geographics',
-        maxZoom: 20
-      }
-    );
-
-    // Por defecto: claro y limpio
-    baseCartoPositron.addTo(leafletMap);
-
-    // Selector de base
-    L.control.layers(
-      {
-        '🌐 Carto Positron (claro)': baseCartoPositron,
-        '🌑 Carto Dark': baseCartoDark,
-        '🛰️ Esri World Imagery': baseEsriImagery
-      },
-      null,
-      { collapsed: false }
-    ).addTo(leafletMap);
-
-    // Atribución propia
-    L.control.attribution({ position: 'bottomright', attributionControl: false })
-      .addAttribution('© Dashboard SMT-ONIC')
-      .addTo(leafletMap);
-
-    // Cargar GeoJSON (una sola vez)
-    fetch(GEOJSON_URL, { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (geoLayer) { leafletMap.removeLayer(geoLayer); }
-        geoLayer = L.geoJSON(data, {
-          style: function () {
-            return { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.25 };
-          },
-          onEachFeature: function (feature, layer) {
-            var props = feature && feature.properties;
-            if (props) {
-              var info = '';
-              Object.keys(props).forEach(function (k) {
-                info += '<b>' + k + ':</b> ' + props[k] + '<br>';
-              });
-              if (info) layer.bindPopup(info);
-            }
-          }
-        }).addTo(leafletMap);
-
-        // Auto-zoom seguro
-        try {
-          var bounds = geoLayer.getBounds();
-          if (bounds && bounds.isValid && bounds.isValid()) {
-            leafletMap.fitBounds(bounds, { padding: [30, 30] });
-          } else {
-            leafletMap.setView([4.65, -74.1], 10); // Bogotá fallback
-          }
-        } catch (e) {
-          console.warn('[map] Bounds inválidos, usando fallback:', e);
-          leafletMap.setView([4.65, -74.1], 10);
-        }
-      })
-      .catch(function (err) {
-        console.error('[map] Error GeoJSON:', err);
-        leafletMap.setView([4.65, -74.1], 10);
-      });
+    updateCharts(data);
+    updateConvenciones(data);
   }
 
-  // ---------- Loop de refresco ----------
-  function refreshLoop() {
-    fetchDashboardData().then(updateUI);
-  }
-
-  // ---------- Inicio ----------
-  document.addEventListener('DOMContentLoaded', function () {
-    initCharts();
-    initMap();
-    refreshLoop();
-    setInterval(refreshLoop, REFRESH_MS);
+  /* === INICIALIZAR === */
+  document.addEventListener('DOMContentLoaded', async () => {
+    renderCharts();
+    await refreshAll();
+    await renderMap();
+    setInterval(refreshAll, REFRESH_MS);
   });
+
 })();
 </script>
 
