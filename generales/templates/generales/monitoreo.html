@@ -183,21 +183,23 @@
   function getIcon(tipo) {
     tipo = (tipo || '').toLowerCase();
 
+    // 🏠 Vivienda (roja)
     if (tipo.includes('vivienda')) {
       return L.divIcon({
         html: `<div style="
-          width:24px;height:24px;
-          background:#2563eb;
+          width:26px;height:26px;
+          background:#dc2626;
           clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);
           border:2px solid white;
           box-shadow:0 0 6px rgba(0,0,0,0.4);
         "></div>`,
         className: '',
-        iconSize: [24, 24],
-        iconAnchor: [12, 24]
+        iconSize: [26, 26],
+        iconAnchor: [13, 26]
       });
     }
 
+    // 🟩 Establo / Pesebrera / Galpón
     if (tipo.includes('establo') || tipo.includes('pesebrera') || tipo.includes('galpón')) {
       return L.divIcon({
         html: `<div style="
@@ -213,6 +215,7 @@
       });
     }
 
+    // 🟠 Otro tipo
     return L.divIcon({
       html: `<div style="
         width:18px;height:18px;
@@ -262,9 +265,9 @@
       legend.onAdd = function () {
         const div = L.DomUtil.create('div', 'legend bg-gray-900/80 text-white p-3 rounded-xl shadow-lg text-sm');
         div.innerHTML = `
-          <h4 class="font-semibold mb-1 text-indigo-300">🔍 Leyenda</h4>
+          <h4 class="font-semibold mb-1 text-red-400">🏗️ TIPOS DE CONSTRUCCIÓN</h4>
           <div class="flex items-center gap-2 mb-1">
-            <div style="width:18px;height:18px;background:#2563eb;clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);border:1px solid white;"></div>
+            <div style="width:18px;height:18px;background:#dc2626;clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);border:1px solid white;"></div>
             Vivienda
           </div>
           <div class="flex items-center gap-2 mb-1">
@@ -310,6 +313,7 @@
 
 })();
 </script>
+
 
 </body>
 </html>
