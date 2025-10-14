@@ -2,314 +2,239 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Monitoreo Diario de Encuestas</title>
+  <title>🧠 Monitoreo Diario — Estilo Iron Man</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            base: "#050914",
+            accent: "#00ffff",
+            accent2: "#14b8a6",
+            neon: "#38bdf8",
+            warning: "#fbbf24",
+          },
+          boxShadow: {
+            glow: "0 0 20px rgba(0,255,255,0.3)",
+          }
+        }
+      }
+    }
+  </script>
+
   <style>
-    body { background: #0f172a; }
-    .card { background: #111827; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-    .kpi { background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%); }
+    body {
+      background:
+        radial-gradient(circle at 30% -10%, rgba(0,255,255,0.15), transparent 40%),
+        radial-gradient(circle at 70% 0%, rgba(255,0,255,0.08), transparent 40%),
+        #050914;
+      color: #e0f2fe;
+      font-family: 'Orbitron', sans-serif;
+    }
+    .glass {
+      background: rgba(15,23,42,0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(0,255,255,0.2);
+      box-shadow: 0 0 15px rgba(0,255,255,0.15);
+    }
+    .hud-title {
+      background: linear-gradient(90deg,#00ffff 0%,#3b82f6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .pulse-glow {
+      animation: pulse-glow 2.2s infinite alternate;
+    }
+    @keyframes pulse-glow {
+      from { box-shadow: 0 0 10px rgba(0,255,255,.25); }
+      to   { box-shadow: 0 0 30px rgba(0,255,255,.55); }
+    }
   </style>
 </head>
-<body class="text-gray-100 min-h-screen">
-  <div class="max-w-7xl mx-auto px-4 py-8">
-    <header class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 class="text-3xl md:text-4xl font-bold">Monitoreo Diario de Encuestas</h1>
-        <p class="text-gray-400 mt-1">Datos del día actual (se actualiza cada 10 segundos)</p>
-      </div>
 
-      <!-- Botones de navegación -->
-      <div class="mt-4 md:mt-0 flex gap-3">
-        <a href="{% url 'generales:dashboard-consolidado' %}" 
-          class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
-          📑 Consolidado General
-        </a>
-        <a href="{% url 'generales:reporte-censistas' %}" 
-          class="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
-          📊 Reporte por Fechas
-        </a>
+<body class="min-h-screen p-6 md:p-10">
+  <div class="max-w-7xl mx-auto space-y-8">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl md:text-4xl font-extrabold hud-title">Monitoreo Diario de Encuestas</h1>
+        <p class="text-slate-400 text-sm tracking-widest">Actualización automática cada 10 s</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="refreshBtn" class="glass px-4 py-2 rounded-lg text-accent text-sm hover:bg-cyan-500/20 transition shadow-glow">⟳ Actualizar</button>
+        <span id="updatedAt" class="text-xs text-slate-400">—</span>
       </div>
     </header>
 
     <!-- KPIs -->
-    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total encuestas</p>
-        <p id="kpi-total" class="text-4xl font-extrabold mt-2">—</p>
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="glass rounded-2xl p-5 text-center pulse-glow">
+        <p class="text-slate-400 text-sm uppercase tracking-wider">Total Encuestas</p>
+        <p id="kpi-total" class="text-5xl font-extrabold text-accent mt-1">—</p>
       </div>
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total viviendas</p>
-        <p id="kpi-viviendas" class="text-4xl font-extrabold mt-2">—</p>
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-slate-400 text-sm uppercase tracking-wider">Departamentos</p>
+        <p id="kpi-departamentos" class="text-5xl font-extrabold text-neon mt-1">—</p>
       </div>
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total sectores</p>
-        <p id="kpi-sectores" class="text-4xl font-extrabold mt-2">—</p>
-      </div>
-    </section>
-    <!-- Charts -->
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="card p-4">
-        <h2 class="text-lg font-semibold mb-2">Encuestas por censista</h2>
-        <div id="chart-censistas" class="w-full h-[360px]"></div>
-      </div>
-      <div class="card p-4">
-        <h2 class="text-lg font-semibold mb-2">Distribución por sectores</h2>
-        <div id="chart-sectores" class="w-full h-[360px]"></div>
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-slate-400 text-sm uppercase tracking-wider">Municipios</p>
+        <p id="kpi-municipios" class="text-5xl font-extrabold text-warning mt-1">—</p>
       </div>
     </section>
-   
-    <!-- Tabla de convenciones -->
-    <section class="card p-4 mt-6">
-      <h2 class="text-lg font-semibold mb-2">Convenciones de censistas</h2>
-      <table class="min-w-full text-sm text-left text-gray-300">
-        <thead class="text-gray-400 border-b border-gray-600">
-          <tr>
-            <th class="px-4 py-2">ID</th>
-            <th class="px-4 py-2">Nombre completo</th>
-            <th class="px-4 py-2">Total encuestas</th>
-          </tr>
-        </thead>
-        <tbody id="tabla-convenciones"></tbody>
-      </table>
-    </section>
-    <section class="card p-4 mt-6">
-      <h2 class="text-lg font-semibold mb-2">Mapa de Encuestas</h2>
-      <!-- Leaflet (si ya lo tienes, puedes omitir estas dos líneas) -->
-      <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-      <!-- Contenedor del mapa -->
-      <div id="map" class="w-full h-[520px] rounded-xl mt-6"></div>
+    <!-- Censistas row -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <!-- Gráfica Censistas -->
+      <div class="glass rounded-2xl p-5">
+        <h2 class="text-lg font-semibold text-accent mb-2">📊 Encuestas por Censista</h2>
+        <div id="chart-usuarios" class="h-[420px]"></div>
+      </div>
+
+      <!-- Tabla Censistas -->
+      <div class="glass rounded-2xl p-5">
+        <h2 class="text-lg font-semibold text-accent mb-3">🧍‍♂️ Detalle de Censistas</h2>
+        <div class="overflow-hidden rounded-lg border border-cyan-500/20 shadow-glow">
+          <table class="min-w-full text-sm text-slate-200">
+            <thead class="bg-cyan-500/10 text-cyan-300 uppercase text-xs">
+              <tr>
+                <th class="px-4 py-2 text-left">#</th>
+                <th class="px-4 py-2 text-left">Nombre completo</th>
+                <th class="px-4 py-2 text-right">Encuestas</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-usuarios" class="divide-y divide-cyan-500/10 bg-white/5"></tbody>
+          </table>
+        </div>
+        <div id="tabla-usuarios-meta" class="text-xs text-slate-400 mt-2 text-right">—</div>
+      </div>
     </section>
-    <footer class="mt-8 text-xs text-gray-500">
-      Reporte generado en tiempo real. Datos de <code>survey_surveyuser</code> y <code>survey_answer</code>.
-    </footer>
+
+    <!-- Otras gráficas -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="glass rounded-2xl p-5">
+        <h2 class="text-lg font-semibold text-accent mb-2">🕒 Encuestas por Hora</h2>
+        <div id="chart-horas" class="h-[360px]"></div>
+      </div>
+      <div class="glass rounded-2xl p-5">
+        <h2 class="text-lg font-semibold text-accent mb-2">🌍 Por Departamento / Municipio</h2>
+        <div id="chart-deptos" class="h-[360px] mb-4"></div>
+        <div id="chart-munis" class="h-[360px]"></div>
+      </div>
+    </section>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden z-50">
+      <div class="glass border border-cyan-500/30 px-5 py-2 rounded-lg text-sm text-cyan-300 shadow-glow">
+        <span id="toast-msg">Error al cargar datos.</span>
+      </div>
+    </div>
   </div>
 
-<script>
-(function () {
-  'use strict';
+  <script>
+    const REFRESH_MS = 10000;
+    const DATA_URL = '/dashboard/data/';
 
-  // === CONFIG ===
-  const DATA_URL    = '/dashboard/data/';
-  const GEOJSON_URL = '/static/base/geo/censo_chia_2025_verificacion.geojson';
-  const REFRESH_MS  = 10000;
-
-  let map, geoLayer;
-  let layerTotal, layerViviendas, layerSectores;
-
-  // ---------- FUNCIONES DE UTILIDAD ----------
-  const safeNumber = n => (typeof n === 'number' && isFinite(n)) ? n : 0;
-
-  // ---------- FETCH DATOS ----------
-  async function fetchDashboardData() {
-    try {
-      const res = await fetch(DATA_URL, { cache: 'no-store' });
-      return await res.json();
-    } catch (err) {
-      console.error('[dashboard] Error al obtener datos:', err);
-      return {};
-    }
-  }
-
-  // ---------- GRÁFICAS ----------
-  function initCharts() {
-    Plotly.newPlot('chart-censistas', [{ x: [], y: [], type: 'bar' }], {
-      paper_bgcolor: '#111827',
-      plot_bgcolor: '#111827',
-      font: { color: '#e5e7eb' },
-      xaxis: { title: "Censista (ID)" },
-      yaxis: { title: "Encuestas" }
-    }, { displayModeBar: false });
-
-    Plotly.newPlot('chart-sectores', [{ labels: [], values: [], type: 'pie', hole: .45 }], {
-      paper_bgcolor: '#111827',
-      font: { color: '#e5e7eb' }
-    }, { displayModeBar: false });
-  }
-
-  function updateUI(payload) {
-    const kpis = payload.kpis || {};
-    document.getElementById('kpi-total').textContent     = safeNumber(kpis.total_encuestas).toLocaleString();
-    document.getElementById('kpi-viviendas').textContent = safeNumber(kpis.total_viviendas).toLocaleString();
-    document.getElementById('kpi-sectores').textContent  = safeNumber(kpis.total_sectores).toLocaleString();
-
-    const censistas = payload.censistas || [];
-    Plotly.react('chart-censistas', [{
-      x: censistas.map(r => String(r.convencion)),
-      y: censistas.map(r => r.total_encuestas),
-      type: 'bar',
-      text: censistas.map(r => r.nombre_completo),
-      hoverinfo: 'text+y'
-    }], {
-      paper_bgcolor: '#111827',
-      plot_bgcolor: '#111827',
-      font: { color: '#e5e7eb' },
-      xaxis: { title: "Censista (ID)" },
-      yaxis: { title: "Encuestas" }
-    }, { displayModeBar: false });
-
-    const sectores = payload.sectores || [];
-    Plotly.react('chart-sectores', [{
-      labels: sectores.map(r => r.sector),
-      values: sectores.map(r => r.total),
-      type: 'pie',
-      hole: .45
-    }], {
-      paper_bgcolor: '#111827',
-      font: { color: '#e5e7eb' }
-    }, { displayModeBar: false });
-
-    // Tabla de convenciones
-    const tbody = document.getElementById('tabla-convenciones');
-    tbody.innerHTML = '';
-    (payload.convenciones || []).forEach(row => {
-      tbody.innerHTML += `
-        <tr class="border-b border-gray-700">
-          <td class="px-4 py-2">${row.convencion}</td>
-          <td class="px-4 py-2">${row.nombre_completo}</td>
-          <td class="px-4 py-2">${row.total_encuestas}</td>
-        </tr>`;
-    });
-  }
-
-  // ---------- MAPA ----------
-  function initMap() {
-    map = L.map('map', { attributionControl: false });
-
-    // 🛰️ Base satelital realista
-    const esriImagery = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics'
-      }
-    ).addTo(map);
-
-    // 🗺️ Etiquetas opcionales (modo híbrido)
-    const esriLabels = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 19, opacity: 0.8 }
-    );
-
-    L.control.layers(
-      {
-        "🛰️ Satelital Realista": esriImagery,
-        "🌍 Satelital + Nombres": L.layerGroup([esriImagery, esriLabels])
-      },
-      null,
-      { collapsed: false }
-    ).addTo(map);
-
-    // Atribución
-    L.control.attribution({ position: 'bottomright' })
-      .addAttribution('© Dashboard SMT-ONIC')
-      .addTo(map);
-
-    // Capas por tipo
-    layerTotal = L.layerGroup().addTo(map);
-    layerViviendas = L.layerGroup().addTo(map);
-    layerSectores = L.layerGroup().addTo(map);
-
-    // Leyenda
-    const legend = L.control({ position: 'bottomleft' });
-    legend.onAdd = function() {
-      const div = L.DomUtil.create('div', 'legend bg-gray-900 bg-opacity-70 text-gray-100 p-3 rounded-xl text-sm shadow-lg');
-      div.innerHTML = `
-        <strong class="block text-center text-blue-400 mb-1">🏗️ TIPOS DE CONSTRUCCIÓN</strong>
-        <div class="flex items-center gap-2 mb-1"><span style="width:18px;height:18px;background:#dc2626;display:inline-block;border-radius:4px;"></span> Vivienda</div>
-        <div class="flex items-center gap-2 mb-1"><span style="width:18px;height:18px;background:#16a34a;display:inline-block;border-radius:4px;"></span> Establo / Galpón</div>
-        <div class="flex items-center gap-2"><span style="width:18px;height:18px;background:#f59e0b;display:inline-block;border-radius:4px;"></span> Otro</div>
-      `;
-      return div;
+    const layout = {
+      paper_bgcolor: '#0f172a',
+      plot_bgcolor:  '#0f172a',
+      font: { color: '#e0f2fe' },
+      margin: { t: 30, r: 20, b: 40, l: 40 }
     };
-    legend.addTo(map);
 
-    // Cargar datos
-    fetch(GEOJSON_URL)
-      .then(r => r.json())
-      .then(data => {
-        geoLayer = L.geoJSON(data, {
-          pointToLayer: (feature, latlng) => {
-            const tipo = (feature.properties?.que_tipo_de_construccion_es_3 || '').toLowerCase();
-            return L.marker(latlng, { icon: getIcon(tipo) });
-          },
-          onEachFeature: (feature, layer) => {
-            const props = feature.properties || {};
-            const info = Object.entries(props).map(([k, v]) => `<b>${k}:</b> ${v}`).join("<br>");
-            layer.bindPopup(info);
-          }
-        }).addTo(layerTotal);
-
-        const bounds = geoLayer.getBounds();
-        if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
-        else map.setView([4.65, -74.1], 12);
-      })
-      .catch(err => {
-        console.error('[map] Error cargando GeoJSON:', err);
-        map.setView([4.65, -74.1], 11);
-      });
-  }
-
-  // ---------- ÍCONOS ----------
-  function getIcon(tipo) {
-    if (tipo.includes('vivienda')) {
-      return L.divIcon({
-        html: `<div style="
-          width:26px;height:26px;
-          background:#dc2626;
-          clip-path: polygon(50% 0%, 100% 40%, 100% 100%, 0 100%, 0 40%);
-          border:2px solid white;
-          box-shadow:0 0 6px rgba(0,0,0,0.4);
-        "></div>`,
-        className: '', iconSize:[26,26], iconAnchor:[13,26]
-      });
-    } else if (tipo.includes('establo') || tipo.includes('galpón')) {
-      return L.divIcon({
-        html: `<div style="
-          width:22px;height:22px;
-          background:#16a34a;
-          border-radius:4px;
-          border:2px solid white;
-        "></div>`,
-        className: '', iconSize:[22,22], iconAnchor:[11,22]
-      });
-    } else {
-      return L.divIcon({
-        html: `<div style="
-          width:18px;height:18px;
-          background:#f59e0b;
-          border-radius:50%;
-          border:2px solid white;
-        "></div>`,
-        className: '', iconSize:[18,18], iconAnchor:[9,18]
-      });
+    function asArr(v){ return Array.isArray(v) ? v : []; }
+    function show(el, flag){ el.classList.toggle('hidden', !flag); }
+    function toast(msg){
+      const t=document.getElementById('toast');
+      document.getElementById('toast-msg').textContent=msg;
+      show(t,true); setTimeout(()=>show(t,false),2500);
     }
-  }
 
-  // ---------- REFRESCO ----------
-  function refreshLoop() {
-    fetchDashboardData().then(updateUI);
-  }
+    async function fetchData(){
+      const res = await fetch(DATA_URL, {cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    }
 
-  // ---------- INICIO ----------
-  document.addEventListener('DOMContentLoaded', function () {
-    initCharts();
-    initMap();
-    refreshLoop();
-    setInterval(refreshLoop, REFRESH_MS);
-  });
+    function updateUI(data){
+      const k = data?.kpis || {};
+      document.getElementById('kpi-total').textContent = (k.total_encuestas ?? 0).toLocaleString();
+      document.getElementById('kpi-departamentos').textContent = k.total_departamentos ?? 0;
+      document.getElementById('kpi-municipios').textContent = k.total_municipios ?? 0;
+      document.getElementById('updatedAt').textContent = "Actualizado: " + new Date().toLocaleTimeString();
 
-})();
-</script>
+      const usuarios = asArr(data.usuarios);
+      const horas    = asArr(data.horas);
+      const deptos   = asArr(data.departamentos);
+      const munis    = asArr(data.municipios);
 
+      // Chart Censistas
+      Plotly.react('chart-usuarios', [{
+        x: usuarios.map(u => u.nombre_completo || '—'),
+        y: usuarios.map(u => u.total ?? 0),
+        type:'bar',
+        marker:{ color:'#00ffff' },
+        hoverinfo:'x+y'
+      }], {...layout, xaxis:{tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
 
+      // Chart Horas
+      Plotly.react('chart-horas', [{
+        x: horas.map(h => h.hora),
+        y: horas.map(h => h.total ?? 0),
+        type:'bar',
+        marker:{color:'#38bdf8'}
+      }], {...layout, xaxis:{title:'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
+
+      // Chart Deptos
+      Plotly.react('chart-deptos', [{
+        labels: deptos.map(d => d.departamento || 'Sin dato'),
+        values: deptos.map(d => d.total ?? 0),
+        type:'pie', hole:.55,
+        marker:{colors:['#00ffff','#38bdf8','#14b8a6','#6366f1','#fbbf24']}
+      }], {...layout, legend:{orientation:'h',x:0,y:-0.1}}, {displayModeBar:false});
+
+      // Chart Municipios
+      Plotly.react('chart-munis', [{
+        labels: munis.map(m => m.municipio || 'Sin dato'),
+        values: munis.map(m => m.total ?? 0),
+        type:'pie', hole:.55,
+        marker:{colors:['#38bdf8','#0ea5e9','#0d9488','#14b8a6','#f59e0b']}
+      }], {...layout, legend:{orientation:'h',x:0,y:-0.1}}, {displayModeBar:false});
+
+      // Tabla Censistas
+      const tbody = document.getElementById('tabla-usuarios');
+      tbody.innerHTML = '';
+      usuarios.forEach((u,i)=>{
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-cyan-500/10 transition';
+        tr.innerHTML = `
+          <td class="px-4 py-2 text-slate-400">${i+1}</td>
+          <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
+          <td class="px-4 py-2 text-right text-cyan-300 font-semibold">${u.total ?? 0}</td>`;
+        tbody.appendChild(tr);
+      });
+      document.getElementById('tabla-usuarios-meta').textContent = `${usuarios.length} censista(s)`;
+    }
+
+    async function refresh(){
+      try {
+        const data = await fetchData();
+        updateUI(data);
+      } catch(e){
+        console.error(e);
+        toast('No se pudieron obtener los datos del servidor');
+      }
+    }
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+    document.getElementById('refreshBtn').addEventListener('click', refresh);
+  </script>
 </body>
 </html>
+
+
