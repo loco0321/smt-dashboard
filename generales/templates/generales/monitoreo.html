@@ -2,108 +2,58 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>🧠 Monitoreo Diario — Estilo Iron Man</title>
+  <title>🧠 Monitoreo Diario — HUD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            base: "#050914",
-            accent: "#00ffff",
-            accent2: "#14b8a6",
-            neon: "#38bdf8",
-            warning: "#fbbf24",
-          },
-          boxShadow: {
-            glow: "0 0 20px rgba(0,255,255,0.3)",
-          }
-        }
-      }
-    }
-  </script>
-
   <style>
-    body {
+    body{
       background:
-        radial-gradient(circle at 30% -10%, rgba(0,255,255,0.15), transparent 40%),
-        radial-gradient(circle at 70% 0%, rgba(255,0,255,0.08), transparent 40%),
+        radial-gradient(circle at 30% -10%, rgba(0,255,255,.15), transparent 40%),
+        radial-gradient(circle at 70% 0%, rgba(255,0,255,.08), transparent 40%),
         #050914;
-      color: #e0f2fe;
-      font-family: 'Orbitron', sans-serif;
+      color:#e0f2fe;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto;
     }
-    .glass {
-      background: rgba(15,23,42,0.7);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(0,255,255,0.2);
-      box-shadow: 0 0 15px rgba(0,255,255,0.15);
-    }
-    .hud-title {
-      background: linear-gradient(90deg,#00ffff 0%,#3b82f6 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .pulse-glow {
-      animation: pulse-glow 2.2s infinite alternate;
-    }
-    @keyframes pulse-glow {
-      from { box-shadow: 0 0 10px rgba(0,255,255,.25); }
-      to   { box-shadow: 0 0 30px rgba(0,255,255,.55); }
-    }
+    .glass{ background:rgba(15,23,42,.7); backdrop-filter:blur(10px); border:1px solid rgba(0,255,255,.18); box-shadow:0 0 15px rgba(0,255,255,.12); }
+    .hud-title{ background:linear-gradient(90deg,#00ffff 0%,#3b82f6 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent;}
   </style>
 </head>
-
 <body class="min-h-screen p-6 md:p-10">
   <div class="max-w-7xl mx-auto space-y-8">
-
-    <!-- Header -->
-    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <header class="flex items-end justify-between">
       <div>
         <h1 class="text-3xl md:text-4xl font-extrabold hud-title">Monitoreo Diario de Encuestas</h1>
-        <p class="text-slate-400 text-sm tracking-widest">Actualización automática cada 10 s</p>
+        <p class="text-slate-400 text-sm">Actualiza cada 10 s</p>
       </div>
-      <div class="flex items-center gap-2">
-        <button id="refreshBtn" class="glass px-4 py-2 rounded-lg text-accent text-sm hover:bg-cyan-500/20 transition shadow-glow">⟳ Actualizar</button>
-        <span id="updatedAt" class="text-xs text-slate-400">—</span>
-      </div>
+      <button id="refreshBtn" class="glass px-4 py-2 rounded text-cyan-300">⟳ Actualizar</button>
     </header>
 
     <!-- KPIs -->
-    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div class="glass rounded-2xl p-5 text-center pulse-glow">
-        <p class="text-slate-400 text-sm uppercase tracking-wider">Total Encuestas</p>
-        <p id="kpi-total" class="text-5xl font-extrabold text-accent mt-1">—</p>
-      </div>
-      <div class="glass rounded-2xl p-5 text-center">
-        <p class="text-slate-400 text-sm uppercase tracking-wider">Departamentos</p>
-        <p id="kpi-departamentos" class="text-5xl font-extrabold text-neon mt-1">—</p>
-      </div>
-      <div class="glass rounded-2xl p-5 text-center">
-        <p class="text-slate-400 text-sm uppercase tracking-wider">Municipios</p>
-        <p id="kpi-municipios" class="text-5xl font-extrabold text-warning mt-1">—</p>
-      </div>
+    <section class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div class="glass p-5 text-center"><p>Total Encuestas</p><p id="kpi-total" class="text-4xl font-bold text-cyan-400">—</p></div>
+      <div class="glass p-5 text-center"><p>Departamentos</p><p id="kpi-departamentos" class="text-4xl font-bold text-blue-400">—</p></div>
+      <div class="glass p-5 text-center"><p>Municipios</p><p id="kpi-municipios" class="text-4xl font-bold text-amber-400">—</p></div>
+      <div class="glass p-5 text-center"><p>Usuarios</p><p id="kpi-usuarios" class="text-4xl font-bold text-cyan-300">—</p></div>
     </section>
 
-    <!-- Censistas row -->
+    <!-- Gráfica + Tabla -->
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-      <!-- Gráfica Censistas -->
-      <div class="glass rounded-2xl p-5">
-        <h2 class="text-lg font-semibold text-accent mb-2">📊 Encuestas por Censista</h2>
+      <div class="glass p-5">
+        <h2 class="text-lg mb-2 text-cyan-300">📊 Encuestas por Censista</h2>
         <div id="chart-usuarios" class="h-[420px]"></div>
       </div>
 
-      <!-- Tabla Censistas -->
-      <div class="glass rounded-2xl p-5">
-        <h2 class="text-lg font-semibold text-accent mb-3">🧍‍♂️ Detalle de Censistas</h2>
-        <div class="overflow-hidden rounded-lg border border-cyan-500/20 shadow-glow">
-          <table class="min-w-full text-sm text-slate-200">
+      <div class="glass p-5">
+        <h2 class="text-lg mb-3 text-cyan-300">🧍‍♂️ Detalle Censistas</h2>
+        <div class="overflow-hidden rounded border border-cyan-500/20">
+          <table class="min-w-full text-sm">
             <thead class="bg-cyan-500/10 text-cyan-300 uppercase text-xs">
               <tr>
                 <th class="px-4 py-2 text-left">#</th>
+                <th class="px-4 py-2 text-left">Usuario</th>
                 <th class="px-4 py-2 text-left">Nombre completo</th>
+                <th class="px-4 py-2 text-left">Departamento</th>
                 <th class="px-4 py-2 text-right">Encuestas</th>
               </tr>
             </thead>
@@ -114,127 +64,97 @@
       </div>
     </section>
 
-    <!-- Otras gráficas -->
+    <!-- Otras gráficas opcionales -->
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="glass rounded-2xl p-5">
-        <h2 class="text-lg font-semibold text-accent mb-2">🕒 Encuestas por Hora</h2>
+      <div class="glass p-5">
+        <h2 class="text-lg mb-2 text-cyan-300">🕒 Encuestas por Hora</h2>
         <div id="chart-horas" class="h-[360px]"></div>
       </div>
-      <div class="glass rounded-2xl p-5">
-        <h2 class="text-lg font-semibold text-accent mb-2">🌍 Por Departamento / Municipio</h2>
+      <div class="glass p-5">
+        <h2 class="text-lg mb-2 text-cyan-300">🌍 Por Departamento / Municipio</h2>
         <div id="chart-deptos" class="h-[360px] mb-4"></div>
         <div id="chart-munis" class="h-[360px]"></div>
       </div>
     </section>
-
-    <!-- Toast -->
-    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden z-50">
-      <div class="glass border border-cyan-500/30 px-5 py-2 rounded-lg text-sm text-cyan-300 shadow-glow">
-        <span id="toast-msg">Error al cargar datos.</span>
-      </div>
-    </div>
   </div>
 
   <script>
-    const REFRESH_MS = 10000;
     const DATA_URL = '/dashboard/data/';
+    const REFRESH_MS = 10000;
 
     const layout = {
-      paper_bgcolor: '#0f172a',
-      plot_bgcolor:  '#0f172a',
-      font: { color: '#e0f2fe' },
-      margin: { t: 30, r: 20, b: 40, l: 40 }
+      paper_bgcolor:'#0f172a',
+      plot_bgcolor:'#0f172a',
+      font:{color:'#e0f2fe'},
+      margin:{t:30,r:20,b:40,l:40}
     };
 
-    function asArr(v){ return Array.isArray(v) ? v : []; }
-    function show(el, flag){ el.classList.toggle('hidden', !flag); }
-    function toast(msg){
-      const t=document.getElementById('toast');
-      document.getElementById('toast-msg').textContent=msg;
-      show(t,true); setTimeout(()=>show(t,false),2500);
-    }
-
     async function fetchData(){
-      const res = await fetch(DATA_URL, {cache:'no-store'});
+      const res = await fetch(DATA_URL,{cache:'no-store'});
       if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
     }
 
     function updateUI(data){
-      const k = data?.kpis || {};
-      document.getElementById('kpi-total').textContent = (k.total_encuestas ?? 0).toLocaleString();
-      document.getElementById('kpi-departamentos').textContent = k.total_departamentos ?? 0;
-      document.getElementById('kpi-municipios').textContent = k.total_municipios ?? 0;
-      document.getElementById('updatedAt').textContent = "Actualizado: " + new Date().toLocaleTimeString();
+      const k = data.kpis || {};
+      document.getElementById('kpi-total').textContent         = (k.total_encuestas ?? 0);
+      document.getElementById('kpi-departamentos').textContent = (k.total_departamentos ?? 0);
+      document.getElementById('kpi-municipios').textContent    = (k.total_municipios ?? 0);
+      document.getElementById('kpi-usuarios').textContent      = (k.total_usuarios ?? 0);
 
-      const usuarios = asArr(data.usuarios);
-      const horas    = asArr(data.horas);
-      const deptos   = asArr(data.departamentos);
-      const munis    = asArr(data.municipios);
-
-      // Chart Censistas
+      // Gráfica por usuario (username en el eje X)
+      const usuarios = data.usuarios || [];
       Plotly.react('chart-usuarios', [{
-        x: usuarios.map(u => u.nombre_completo || '—'),
-        y: usuarios.map(u => u.total ?? 0),
+        x: usuarios.map(u => u.username || '—'),
+        y: usuarios.map(u => u.total || 0),
         type:'bar',
-        marker:{ color:'#00ffff' },
-        hoverinfo:'x+y'
-      }], {...layout, xaxis:{tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
+        marker:{color:'#00ffff'},
+        hovertext: usuarios.map(u => u.nombre_completo || ''),
+        hoverinfo:'x+y+text'
+      }], {...layout, xaxis:{title:'Usuario', tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
 
-      // Chart Horas
-      Plotly.react('chart-horas', [{
-        x: horas.map(h => h.hora),
-        y: horas.map(h => h.total ?? 0),
-        type:'bar',
-        marker:{color:'#38bdf8'}
-      }], {...layout, xaxis:{title:'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
-
-      // Chart Deptos
-      Plotly.react('chart-deptos', [{
-        labels: deptos.map(d => d.departamento || 'Sin dato'),
-        values: deptos.map(d => d.total ?? 0),
-        type:'pie', hole:.55,
-        marker:{colors:['#00ffff','#38bdf8','#14b8a6','#6366f1','#fbbf24']}
-      }], {...layout, legend:{orientation:'h',x:0,y:-0.1}}, {displayModeBar:false});
-
-      // Chart Municipios
-      Plotly.react('chart-munis', [{
-        labels: munis.map(m => m.municipio || 'Sin dato'),
-        values: munis.map(m => m.total ?? 0),
-        type:'pie', hole:.55,
-        marker:{colors:['#38bdf8','#0ea5e9','#0d9488','#14b8a6','#f59e0b']}
-      }], {...layout, legend:{orientation:'h',x:0,y:-0.1}}, {displayModeBar:false});
-
-      // Tabla Censistas
+      // Tabla
       const tbody = document.getElementById('tabla-usuarios');
       tbody.innerHTML = '';
       usuarios.forEach((u,i)=>{
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-cyan-500/10 transition';
-        tr.innerHTML = `
-          <td class="px-4 py-2 text-slate-400">${i+1}</td>
-          <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
-          <td class="px-4 py-2 text-right text-cyan-300 font-semibold">${u.total ?? 0}</td>`;
-        tbody.appendChild(tr);
+        tbody.innerHTML += `
+          <tr class="hover:bg-cyan-500/10">
+            <td class="px-4 py-2">${i+1}</td>
+            <td class="px-4 py-2">${u.username || '—'}</td>
+            <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
+            <td class="px-4 py-2">${u.departamento || 'Sin Dato'}</td>
+            <td class="px-4 py-2 text-right text-cyan-300 font-semibold">${u.total || 0}</td>
+          </tr>`;
       });
       document.getElementById('tabla-usuarios-meta').textContent = `${usuarios.length} censista(s)`;
+
+      // Deptos/Munis/Horas (si usas esas tarjetas)
+      const deptos = data.departamentos || [];
+      Plotly.react('chart-deptos', [{
+        labels: deptos.map(d => d.departamento || 'Sin Dato'),
+        values: deptos.map(d => d.total || 0),
+        type:'pie', hole:.5
+      }], {paper_bgcolor:'#0f172a', font:{color:'#e0f2fe'}}, {displayModeBar:false});
+
+      const munis = data.municipios || [];
+      Plotly.react('chart-munis', [{
+        labels: munis.map(m => m.municipio || 'Sin Dato'),
+        values: munis.map(m => m.total || 0),
+        type:'pie', hole:.5
+      }], {paper_bgcolor:'#0f172a', font:{color:'#e0f2fe'}}, {displayModeBar:false});
+
+      const horas = data.horas || [];
+      Plotly.react('chart-horas', [{
+        x: horas.map(h => h.hora),
+        y: horas.map(h => h.total || 0),
+        type:'bar',
+        marker:{color:'#38bdf8'}
+      }], {...layout, xaxis:{title:'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
     }
 
-    async function refresh(){
-      try {
-        const data = await fetchData();
-        updateUI(data);
-      } catch(e){
-        console.error(e);
-        toast('No se pudieron obtener los datos del servidor');
-      }
-    }
-
-    refresh();
-    setInterval(refresh, REFRESH_MS);
+    async function refresh(){ try{ updateUI(await fetchData()); } catch(e){ console.error(e); } }
+    refresh(); setInterval(refresh, REFRESH_MS);
     document.getElementById('refreshBtn').addEventListener('click', refresh);
   </script>
 </body>
 </html>
-
-
