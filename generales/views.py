@@ -30,11 +30,10 @@ SURVEY_ID_TARGET = 9  # <- filtra la encuesta solicitada
 
 def monitoreo_data(request):
     """
-    Dashboard diario:
-      - username (corto) y nombre_completo desde auth_user
-      - departamento (robusto) desde question_id=1
-      - municipio (robusto) desde question_id=2
-      - formularios únicos por día (CURRENT_DATE)
+    Dashboard diario agrupando por (user_id, fecha y hora):
+      - Se toma UNA sola observación por cada (user_id, date_trunc('hour', first_created_at)) del día
+      - Nombres desde auth_user (username + nombre completo)
+      - Departamento/Municipio robustos desde JSON (q1 y q2)
     """
 
     SQL_BASE = """
@@ -44,15 +43,16 @@ def monitoreo_data(request):
       WHERE a.survey_id = %s
         AND a.created_at::date = CURRENT_DATE
     ),
+    -- Resumen por formulario (misma que ya tenías)
     forms AS (
       SELECT
         CASE
           WHEN sa.survey_user_form_id IS NOT NULL THEN 'F:' || sa.survey_user_form_id::text
           WHEN sa.survey_user_id      IS NOT NULL THEN 'SU:'|| sa.survey_user_id::text
           ELSE 'A:'|| sa.id::text
-        END AS form_key,
-        MIN(sa.created_at) AS first_created_at,
-        MAX(sa.user_id)    AS user_id,
+        END                              AS form_key,
+        MIN(sa.created_at)               AS first_created_at,
+        MAX(sa.user_id)                  AS user_id,
         MAX(COALESCE(NULLIF(BTRIM(u.username),''),'—')) AS username,
         MAX(
           COALESCE(
@@ -60,16 +60,38 @@ def monitoreo_data(request):
             NULLIF(BTRIM(u.username),''),
             'Sin nombre'
           )
-        ) AS nombre_completo
+        )                                AS nombre_completo
       FROM answers sa
       LEFT JOIN auth_user u ON u.id = sa.user_id
       GROUP BY 1
+    ),
+    -- ====== DEDUP estricta por (user_id, FECHA, HORA) ======
+    -- Colapsa múltiples reintentos del mismo usuario en la misma hora del día.
+    grouped AS (
+      SELECT
+        f.user_id,
+        f.username,
+        f.nombre_completo,
+        -- guardamos el primer timestamp real del bloque (útil para la serie por hora)
+        MIN(f.first_created_at) AS first_created_at,
+        -- elegimos un form_key representativo del bloque
+        MIN(f.form_key)         AS form_key
+      FROM forms f
+      -- aunque ya filtramos por CURRENT_DATE arriba, dejamos la fecha explícita para claridad
+      GROUP BY
+        f.user_id,
+        f.username,
+        f.nombre_completo,
+        date_trunc('hour', f.first_created_at)
     )
     """
 
-    SQL_TOTAL = SQL_BASE + "SELECT COUNT(*) FROM forms;"
+    # ================== MÉTRICAS SOBRE "grouped" ==================
 
-    # ---------- Departamento (robusto) ----------
+    SQL_TOTAL = SQL_BASE + """
+      SELECT COUNT(*) FROM grouped;
+    """
+
     SQL_POR_DEPTO = SQL_BASE + """
       , dept AS (
         SELECT
@@ -85,17 +107,12 @@ def monitoreo_data(request):
               NULLIF(BTRIM((a.data::jsonb)->>'depto'), ''),
               NULLIF(BTRIM((a.data::jsonb)->>'dept'), ''),
               NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
-              -- value como ARRAY -> primer .label
               (SELECT NULLIF(BTRIM(e->>'label'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
-              -- value como ARRAY -> primer .value textual
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               (SELECT NULLIF(BTRIM(e->>'value'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
-              -- value simple como string
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
               'Sin dato'
             )
@@ -105,13 +122,12 @@ def monitoreo_data(request):
       )
       SELECT COALESCE(d.departamento,'Sin Dato') AS departamento,
              COUNT(*) AS total
-      FROM forms f
+      FROM grouped g
       LEFT JOIN dept d USING(form_key)
       GROUP BY 1
       ORDER BY total DESC, departamento;
     """
 
-    # ---------- Municipio (robusto) (opcional para otras gráficas) ----------
     SQL_POR_MUNI = SQL_BASE + """
       , muni AS (
         SELECT
@@ -129,12 +145,10 @@ def monitoreo_data(request):
               NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
               (SELECT NULLIF(BTRIM(e->>'label'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               (SELECT NULLIF(BTRIM(e->>'value'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
               'Sin dato'
             )
@@ -144,13 +158,12 @@ def monitoreo_data(request):
       )
       SELECT COALESCE(m.municipio,'Sin Dato') AS municipio,
              COUNT(*) AS total
-      FROM forms f
+      FROM grouped g
       LEFT JOIN muni m USING(form_key)
       GROUP BY 1
       ORDER BY total DESC, municipio;
     """
 
-    # ---------- Por usuario (username + nombre + departamento + total) ----------
     SQL_POR_USUARIO = SQL_BASE + """
       , dept AS (
         SELECT
@@ -168,12 +181,10 @@ def monitoreo_data(request):
               NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
               (SELECT NULLIF(BTRIM(e->>'label'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               (SELECT NULLIF(BTRIM(e->>'value'), '')
                  FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array'
-                LIMIT 1),
+                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
               NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
               'Sin dato'
             )
@@ -181,40 +192,38 @@ def monitoreo_data(request):
         FROM answers a
         WHERE a.question_id = 1
       ),
-      user_forms AS (
+      user_rows AS (
         SELECT
-          f.form_key,
-          f.user_id,
-          f.username,
-          f.nombre_completo,
+          g.user_id, g.username, g.nombre_completo, g.form_key,
           COALESCE(d.departamento,'Sin Dato') AS departamento
-        FROM forms f
+        FROM grouped g
         LEFT JOIN dept d USING(form_key)
       )
       SELECT
-        uf.user_id                         AS convencion,
-        MAX(uf.username)                   AS username,
-        MAX(uf.nombre_completo)            AS nombre_completo,
+        ur.user_id                       AS convencion,
+        MAX(ur.username)                 AS username,
+        MAX(ur.nombre_completo)          AS nombre_completo,
         (
           SELECT departamento FROM (
             SELECT departamento, COUNT(*) c
-            FROM user_forms uf2
-            WHERE uf2.user_id = uf.user_id
+            FROM user_rows ur2
+            WHERE ur2.user_id = ur.user_id
             GROUP BY departamento
             ORDER BY c DESC, departamento
             LIMIT 1
           ) x
-        )                                   AS departamento,
-        COUNT(*)                            AS total
-      FROM user_forms uf
-      GROUP BY uf.user_id
+        ) AS departamento,
+        COUNT(*) AS total
+      FROM user_rows ur
+      GROUP BY ur.user_id
       ORDER BY total DESC, username;
     """
 
     SQL_POR_HORA = SQL_BASE + """
-      SELECT TO_CHAR(date_trunc('hour', first_created_at), 'HH24:00') AS hora,
-             COUNT(*) AS total
-      FROM forms
+      SELECT
+        TO_CHAR(date_trunc('hour', first_created_at), 'HH24:00') AS hora,
+        COUNT(*) AS total
+      FROM grouped
       GROUP BY 1
       ORDER BY 1;
     """
