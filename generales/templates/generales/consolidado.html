@@ -2,176 +2,265 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Consolidado de Encuestas</title>
+  <title>Consolidado — Monitoreo HUD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
-    body { background: #0f172a; }
-    .card { background: #111827; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-    .kpi { background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%); }
+    body{
+      background:
+        radial-gradient(80rem 40rem at -10% -20%, rgba(34,211,238,.12), transparent 60%),
+        radial-gradient(60rem 30rem at 120% -30%, rgba(168,85,247,.10), transparent 60%),
+        #050914;
+      color:#e0f2fe;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+    }
+    .glass{ background:rgba(15,23,42,.7); backdrop-filter:blur(10px); border:1px solid rgba(56,189,248,.18); box-shadow:0 0 15px rgba(56,189,248,.12); border-radius:14px;}
+    .title-grad{ background:linear-gradient(90deg,#22d3ee 0%,#6366f1 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent;}
+    .badge{ font-size:.7rem; padding:.2rem .5rem; border:1px solid rgba(34,211,238,.4); color:#67e8f9; border-radius:999px; background:rgba(8,47,73,.25)}
+    .overflow-x-auto::-webkit-scrollbar{ height:8px; }
+    .overflow-x-auto::-webkit-scrollbar-thumb{ background: rgba(34,211,238,.35); border-radius:8px; }
+    .switch{
+      display:inline-grid; grid-template-columns:1fr 1fr; gap:2px; padding:2px;
+      border-radius:9999px; border:1px solid rgba(34,211,238,.4); background:rgba(8,47,73,.25)
+    }
+    .pill{ padding:.35rem .8rem; border-radius:9999px; cursor:pointer; user-select:none; }
+    .pill.active{ background:linear-gradient(135deg,#22d3ee55,#6366f155); border:1px solid rgba(34,211,238,.5); }
+    .btn{ border:1px solid rgba(34,211,238,.4); background:rgba(8,47,73,.25); color:#67e8f9; border-radius:10px; transition:.2s;}
+    .btn:hover{ background:rgba(56,189,248,.15); border-color:rgba(34,211,238,.6); color:#a5f3fc; }
   </style>
 </head>
-<body class="text-gray-100 min-h-screen">
-  <div class="max-w-7xl mx-auto px-4 py-8">
-    <header class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 class="text-3xl md:text-4xl font-bold">Consolidado de Encuestas</h1>
-        <p class="text-gray-400 mt-1">Todos los datos acumulados en la base de encuestas</p>
-      </div>
+<body class="min-h-screen p-6 md:p-10">
+  <div class="max-w-7xl mx-auto space-y-8">
 
-      <!-- Botones -->
-      <div class="mt-4 md:mt-0 flex gap-3">
-        <a href="{% url 'generales:dashboard-consolidado-exportar' %}" 
-           class="px-5 py-2 rounded-xl bg-gradient-to-r from-green-500 to-teal-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
-          ⬇️ Descargar Excel
-        </a>
-        <a href="{% url 'generales:home' %}" 
-           class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 shadow-lg hover:scale-105 transition text-white font-semibold flex items-center gap-2">
-          🔄 Volver al Monitoreo
-        </a>
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+      <div>
+        <h1 class="text-3xl md:text-4xl font-extrabold title-grad">Consolidado de Encuestas</h1>
+        <p class="text-slate-400 text-sm">
+          <span class="badge">Dedup: <code>user_id + answered_at</code> por <code>survey_user_id</code></span>
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="switch">
+          <span id="btnHoy" class="pill">Hoy</span>
+          <span id="btnConsolidado" class="pill active">Consolidado</span>
+        </div>
+        <a href="{% url 'generales:dashboard' %}" class="btn px-4 py-2">📅 Ver Hoy (HTML)</a>
+        <button id="refreshBtn" class="glass px-4 py-2 text-cyan-300 hover:brightness-125 transition">⟳ Actualizar</button>
       </div>
     </header>
 
     <!-- KPIs -->
-    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total encuestas</p>
-        <p id="kpi-total" class="text-4xl font-extrabold mt-2">—</p>
+    <section class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Total Encuestas</p>
+        <p id="kpi-total" class="text-4xl font-bold text-cyan-300">—</p>
       </div>
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total viviendas</p>
-        <p id="kpi-viviendas" class="text-4xl font-extrabold mt-2">—</p>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Departamentos</p>
+        <p id="kpi-departamentos" class="text-4xl font-bold text-blue-300">—</p>
       </div>
-      <div class="card kpi p-6">
-        <p class="text-sm text-gray-400">Total sectores</p>
-        <p id="kpi-sectores" class="text-4xl font-extrabold mt-2">—</p>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Municipios</p>
+        <p id="kpi-municipios" class="text-4xl font-bold text-amber-300">—</p>
       </div>
-    </section>
-
-    <!-- Charts -->
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-      <div class="card p-4">
-        <h2 class="text-lg font-semibold mb-2">Encuestas por censista</h2>
-        <div id="chart-censistas" class="w-full h-[360px]"></div>
-      </div>
-      <div class="card p-4">
-        <h2 class="text-lg font-semibold mb-2">Distribución por sectores</h2>
-        <div id="chart-sectores" class="w-full h-[360px]"></div>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Usuarios</p>
+        <p id="kpi-usuarios" class="text-4xl font-bold text-emerald-300">—</p>
       </div>
     </section>
 
-    <!-- Tabla de convenciones -->
-    <section class="card p-4 mt-6">
-      <h2 class="text-lg font-semibold mb-2">Convenciones de censistas</h2>
-      <table class="min-w-full text-sm text-left text-gray-300">
-        <thead class="text-gray-400 border-b border-gray-600">
-          <tr>
-            <th class="px-4 py-2">ID</th>
-            <th class="px-4 py-2">Nombre completo</th>
-            <th class="px-4 py-2">Total encuestas</th>
-          </tr>
-        </thead>
-        <tbody id="tabla-convenciones"></tbody>
-      </table>
-    </section>
+    <!-- Usuarios: gráfica + tabla/cards -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div class="glass p-5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg text-cyan-300">📊 Encuestas por Censista</h2>
+          <span id="tagScope" class="text-xs text-slate-400">Consolidado</span>
+        </div>
+        <div id="chart-usuarios" class="h-[420px]"></div>
+      </div>
 
-    <!-- Preview de datos -->
-    <section class="card p-4 mt-6">
-      <h2 class="text-lg font-semibold mb-2">Vista previa de datos (50 filas)</h2>
-      <div class="overflow-x-auto">
-        <table class="min-w-full text-xs text-left text-gray-300">
-          <thead id="preview-head" class="text-gray-400 border-b border-gray-600"></thead>
-          <tbody id="preview-body"></tbody>
-        </table>
+      <div class="glass p-5">
+        <h2 class="text-lg mb-3 text-cyan-300">🧍‍♂️ Detalle Censistas</h2>
+
+        <!-- Cards (mobile) -->
+        <div id="usuarios-cards" class="grid grid-cols-1 gap-3 md:hidden"></div>
+
+        <!-- Tabla (md+) -->
+        <div class="hidden md:block">
+          <div class="relative overflow-x-auto rounded border border-cyan-500/20">
+            <table class="min-w-full text-sm">
+              <thead class="bg-cyan-500/10 text-cyan-300 uppercase text-xs sticky top-0 z-10">
+                <tr>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">#</th>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">Usuario</th>
+                  <th class="px-4 py-2 text-left">Nombre completo</th>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">Departamento</th>
+                  <th class="px-4 py-2 text-right whitespace-nowrap">Encuestas</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-usuarios" class="divide-y divide-cyan-500/10 bg-white/5"></tbody>
+            </table>
+          </div>
+          <div id="tabla-usuarios-meta" class="text-xs text-slate-400 mt-2 text-right">—</div>
+        </div>
       </div>
     </section>
 
-    <footer class="mt-8 text-xs text-gray-500">
-      Reporte consolidado en tiempo real. Datos de <code>survey_answer</code>.
-    </footer>
+    <!-- Otras gráficas -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="glass p-5">
+        <h2 class="text-lg mb-2 text-cyan-300">🕒 Serie por Hora</h2>
+        <!-- En consolidado vendrá con fecha + hora -->
+        <div id="chart-horas" class="h-[360px]"></div>
+      </div>
+      <div class="glass p-5">
+        <h2 class="text-lg mb-2 text-cyan-300">🌍 Distribución por Departamento / Municipio</h2>
+        <div id="chart-deptos" class="h-[360px] mb-4"></div>
+        <div id="chart-munis" class="h-[360px]"></div>
+      </div>
+    </section>
   </div>
 
   <script>
-    async function fetchData() {
-      const res = await fetch('/dashboard/consolidado/data/');
+    // ✅ Endpoints correctos según tus urls.py
+    const ENDPOINT_HOY = "{% url 'generales:dashboard-data' %}";                     // /dashboard/data/
+    const ENDPOINT_CONSOLIDADO = "{% url 'generales:dashboard-consolidado-data' %}"; // /dashboard/consolidado/data/
+
+    let DATA_URL = ENDPOINT_CONSOLIDADO; // Por defecto Consolidado
+    const REFRESH_MS = 10000;
+
+    const baseLayout = {
+      paper_bgcolor:'#0b1220',
+      plot_bgcolor:'#0b1220',
+      font:{color:'#e0f2fe'},
+      margin:{t:30,r:20,b:40,l:40}
+    };
+
+    async function fetchData(){
+      const res = await fetch(DATA_URL,{cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
     }
+    function number(n){ return (typeof n === 'number' && isFinite(n)) ? n : 0; }
 
-    function updateUI(payload) {
-      // === KPIs ===
-      document.getElementById('kpi-total').textContent = (payload.kpis.total_encuestas ?? 0).toLocaleString();
-      document.getElementById('kpi-viviendas').textContent = (payload.kpis.total_viviendas ?? 0).toLocaleString();
-      document.getElementById('kpi-sectores').textContent = (payload.kpis.total_sectores ?? 0).toLocaleString();
+    function updateUI(data){
+      // KPIs
+      const k = data?.kpis || {};
+      document.getElementById('kpi-total').textContent         = number(k.total_encuestas);
+      document.getElementById('kpi-departamentos').textContent = number(k.total_departamentos);
+      document.getElementById('kpi-municipios').textContent    = number(k.total_municipios);
+      document.getElementById('kpi-usuarios').textContent      = number(k.total_usuarios);
 
-      // === Gráfica censistas ===
-      const censistas = payload.censistas || [];
-      Plotly.react('chart-censistas', [{
-        x: censistas.map(r => String(r.user_id)),
-        y: censistas.map(r => r.total_encuestas),
-        type: 'bar',
-        text: censistas.map(r => r.nombre_completo),
-        hoverinfo: 'text+y'
-      }], {
-        paper_bgcolor:'#111827',
-        plot_bgcolor:'#111827',
-        font:{color:'#e5e7eb'},
-        xaxis:{title:"Censista (ID)", type:"category"},
-        yaxis:{title:"Encuestas"}
-      }, {displayModeBar:false});
+      // Usuarios (gráfica)
+      const usuarios = data?.usuarios || [];
+      Plotly.react('chart-usuarios', [{
+        x: usuarios.map(u => u.username || '—'),
+        y: usuarios.map(u => number(u.total)),
+        type:'bar',
+        hovertext: usuarios.map(u => u.nombre_completo || ''),
+        hoverinfo:'x+y+text',
+        marker:{color:'#22d3ee'}
+      }], {...baseLayout, xaxis:{title:'Usuario', tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
 
-      // === Gráfica sectores ===
-      const sectores = payload.sectores || [];
-      Plotly.react('chart-sectores', [{
-        labels: sectores.map(r => r.sector),
-        values: sectores.map(r => r.total),
-        type: 'pie',
-        hole:.45
-      }], {
-        paper_bgcolor:'#111827',
-        font:{color:'#e5e7eb'}
-      }, {displayModeBar:false});
-
-      // === Tabla convenciones ===
-      const tbody = document.getElementById('tabla-convenciones');
-      tbody.innerHTML = '';
-      (payload.convenciones || []).forEach(row => {
-        tbody.innerHTML += `
-          <tr class="border-b border-gray-700">
-            <td class="px-4 py-2">${row.user_id}</td>
-            <td class="px-4 py-2">${row.nombre_completo ?? "—"}</td>
-            <td class="px-4 py-2">${row.total_encuestas}</td>
-          </tr>`;
-      });
-
-      // === Preview de datos ===
-      const previewHead = document.getElementById('preview-head');
-      const previewBody = document.getElementById('preview-body');
-      previewHead.innerHTML = '';
-      previewBody.innerHTML = '';
-
-      if(payload.preview && payload.preview.length > 0){
-        const cols = payload.columnas || Object.keys(payload.preview[0]);
-        previewHead.innerHTML = '<tr>' + cols.map(c => `<th class="px-2 py-1">${c}</th>`).join('') + '</tr>';
-        payload.preview.forEach(row => {
-          previewBody.innerHTML += '<tr class="border-b border-gray-700">' +
-            cols.map(c => `<td class="px-2 py-1">${row[c] ?? ""}</td>`).join('') +
-          '</tr>';
+      // Cards (mobile)
+      const cards = document.getElementById('usuarios-cards');
+      if (cards){
+        cards.innerHTML = '';
+        usuarios.forEach((u,i)=>{
+          cards.innerHTML += `
+            <div class="rounded-lg border border-cyan-500/20 bg-white/5 p-3">
+              <div class="flex items-center justify-between mb-1">
+                <div class="text-cyan-300 font-semibold">${u.username || '—'}</div>
+                <div class="text-xs text-slate-400">#${i+1}</div>
+              </div>
+              <div class="text-sm">${u.nombre_completo || '—'}</div>
+              <div class="text-xs text-slate-400 mt-1">Depto: ${u.departamento || 'Sin Dato'}</div>
+              <div class="mt-2 text-right">
+                <span class="text-cyan-300 font-semibold">${number(u.total)}</span>
+                <span class="text-xs text-slate-400 ml-1">encuestas</span>
+              </div>
+            </div>`;
         });
       }
-    }
 
-    async function refresh() {
-      try {
-        const data = await fetchData();
-        updateUI(data);
-      } catch (e) {
-        console.error(e);
+      // Tabla (md+)
+      const tbody = document.getElementById('tabla-usuarios');
+      if (tbody){
+        tbody.innerHTML = '';
+        usuarios.forEach((u,i)=>{
+          tbody.innerHTML += `
+            <tr class="hover:bg-cyan-500/10">
+              <td class="px-4 py-2">${i+1}</td>
+              <td class="px-4 py-2 whitespace-nowrap">${u.username || '—'}</td>
+              <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
+              <td class="px-4 py-2 whitespace-nowrap">${u.departamento || 'Sin Dato'}</td>
+              <td class="px-4 py-2 text-right text-cyan-300 font-semibold whitespace-nowrap">${number(u.total)}</td>
+            </tr>`;
+        });
+        const meta = document.getElementById('tabla-usuarios-meta');
+        if (meta) meta.textContent = `${usuarios.length} censista(s)`;
       }
+
+      // Deptos (pie)
+      const deptos = data?.departamentos || [];
+      Plotly.react('chart-deptos', [{
+        labels: deptos.map(d => d.departamento || 'Sin Dato'),
+        values: deptos.map(d => number(d.total)),
+        type:'pie', hole:.55
+      }], {paper_bgcolor:'#0b1220', font:{color:'#e0f2fe'}, margin:{t:20,b:20,l:20,r:20}}, {displayModeBar:false});
+
+      // Munis (pie)
+      const munis = data?.municipios || [];
+      Plotly.react('chart-munis', [{
+        labels: munis.map(m => m.municipio || 'Sin Dato'),
+        values: munis.map(m => number(m.total)),
+        type:'pie', hole:.55
+      }], {paper_bgcolor:'#0b1220', font:{color:'#e0f2fe'}, margin:{t:20,b:20,l:20,r:20}}, {displayModeBar:false});
+
+      // Horas (bar). En consolidado puede venir "YYYY-MM-DD HH:00"
+      const horas = data?.horas || [];
+      Plotly.react('chart-horas', [{
+        x: horas.map(h => h.hora),
+        y: horas.map(h => number(h.total)),
+        type:'bar',
+        marker:{color:'#60a5fa'}
+      }], {...baseLayout, xaxis:{title: DATA_URL===ENDPOINT_CONSOLIDADO ? 'Fecha y Hora' : 'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
+
+      // Etiqueta de alcance
+      document.getElementById('tagScope').textContent = (DATA_URL===ENDPOINT_CONSOLIDADO ? 'Consolidado' : 'Hoy');
     }
 
+    async function refresh(){ try{ updateUI(await fetchData()); } catch(e){ console.error(e); } }
+
+    // Toggle Hoy / Consolidado
+    const btnHoy = document.getElementById('btnHoy');
+    const btnCon = document.getElementById('btnConsolidado');
+    function setActive(btn, active){ btn.classList.toggle('active', !!active); }
+    btnHoy.addEventListener('click', ()=>{
+      DATA_URL = ENDPOINT_HOY;
+      setActive(btnHoy, true); setActive(btnCon, false);
+      refresh();
+    });
+    btnCon.addEventListener('click', ()=>{
+      DATA_URL = ENDPOINT_CONSOLIDADO;
+      setActive(btnHoy, false); setActive(btnCon, true);
+      refresh();
+    });
+
+    // Init
     refresh();
-    setInterval(refresh, 15000); // refrescar cada 15s
+    setInterval(refresh, 10000);
+    document.getElementById('refreshBtn')?.addEventListener('click', refresh);
+
+    // Resize de plotly al cambiar tamaño
+    window.addEventListener('resize', ()=>{
+      ['chart-usuarios','chart-horas','chart-deptos','chart-munis'].forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) { try { Plotly.Plots.resize(el); } catch(e){} }
+      });
+    });
   </script>
 </body>
 </html>
