@@ -2,76 +2,107 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>🧠 Monitoreo Diario — HUD</title>
+  <title>Monitoreo Diario — Dedup user_id + answered_at</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
     body{
       background:
-        radial-gradient(circle at 30% -10%, rgba(0,255,255,.15), transparent 40%),
-        radial-gradient(circle at 70% 0%, rgba(255,0,255,.08), transparent 40%),
+        radial-gradient(80rem 40rem at -10% -20%, rgba(34,211,238,.12), transparent 60%),
+        radial-gradient(60rem 30rem at 120% -30%, rgba(168,85,247,.10), transparent 60%),
         #050914;
       color:#e0f2fe;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
     }
-    .glass{ background:rgba(15,23,42,.7); backdrop-filter:blur(10px); border:1px solid rgba(0,255,255,.18); box-shadow:0 0 15px rgba(0,255,255,.12); }
-    .hud-title{ background:linear-gradient(90deg,#00ffff 0%,#3b82f6 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent;}
+    .glass{ background:rgba(15,23,42,.7); backdrop-filter:blur(10px); border:1px solid rgba(56,189,248,.18); box-shadow:0 0 15px rgba(56,189,248,.12); border-radius:14px;}
+    .title-grad{ background:linear-gradient(90deg,#22d3ee 0%,#6366f1 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent;}
+    .subtle { color:#93c5fd; }
+    .overflow-x-auto::-webkit-scrollbar{ height:8px; }
+    .overflow-x-auto::-webkit-scrollbar-thumb{ background: rgba(34,211,238,.35); border-radius:8px; }
+    .badge{ font-size:.7rem; padding:.2rem .5rem; border:1px solid rgba(34,211,238,.4); color:#67e8f9; border-radius:999px; background:rgba(8,47,73,.25)}
   </style>
 </head>
 <body class="min-h-screen p-6 md:p-10">
   <div class="max-w-7xl mx-auto space-y-8">
-    <header class="flex items-end justify-between">
+
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
       <div>
-        <h1 class="text-3xl md:text-4xl font-extrabold hud-title">Monitoreo Diario de Encuestas</h1>
-        <p class="text-slate-400 text-sm">Actualiza cada 10 s</p>
+        <h1 class="text-3xl md:text-4xl font-extrabold title-grad">Monitoreo Diario de Encuestas</h1>
+        <p class="text-slate-400 text-sm">
+          Refresco automático cada 10 s · <span class="badge">Datos deduplicados por <code>user_id + answered_at</code></span>
+        </p>
       </div>
-      <button id="refreshBtn" class="glass px-4 py-2 rounded text-cyan-300">⟳ Actualizar</button>
+      <div class="flex items-center gap-2">
+        <button id="refreshBtn" class="glass px-4 py-2 text-cyan-300 hover:brightness-125 transition">⟳ Actualizar</button>
+      </div>
     </header>
 
     <!-- KPIs -->
     <section class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-      <div class="glass p-5 text-center"><p>Total Encuestas</p><p id="kpi-total" class="text-4xl font-bold text-cyan-400">—</p></div>
-      <div class="glass p-5 text-center"><p>Departamentos</p><p id="kpi-departamentos" class="text-4xl font-bold text-blue-400">—</p></div>
-      <div class="glass p-5 text-center"><p>Municipios</p><p id="kpi-municipios" class="text-4xl font-bold text-amber-400">—</p></div>
-      <div class="glass p-5 text-center"><p>Usuarios</p><p id="kpi-usuarios" class="text-4xl font-bold text-cyan-300">—</p></div>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Total Encuestas</p>
+        <p id="kpi-total" class="text-4xl font-bold text-cyan-300">—</p>
+      </div>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Departamentos</p>
+        <p id="kpi-departamentos" class="text-4xl font-bold text-blue-300">—</p>
+      </div>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Municipios</p>
+        <p id="kpi-municipios" class="text-4xl font-bold text-amber-300">—</p>
+      </div>
+      <div class="glass p-5 text-center">
+        <p class="text-slate-300 text-sm">Usuarios</p>
+        <p id="kpi-usuarios" class="text-4xl font-bold text-emerald-300">—</p>
+      </div>
     </section>
 
-    <!-- Gráfica + Tabla -->
+    <!-- Usuarios: gráfica + tabla/cards -->
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       <div class="glass p-5">
-        <h2 class="text-lg mb-2 text-cyan-300">📊 Encuestas por Censista</h2>
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg text-cyan-300">📊 Encuestas por Censista</h2>
+          <span class="text-xs subtle">username en eje X</span>
+        </div>
         <div id="chart-usuarios" class="h-[420px]"></div>
       </div>
 
       <div class="glass p-5">
         <h2 class="text-lg mb-3 text-cyan-300">🧍‍♂️ Detalle Censistas</h2>
-        <div class="overflow-hidden rounded border border-cyan-500/20">
-          <table class="min-w-full text-sm">
-            <thead class="bg-cyan-500/10 text-cyan-300 uppercase text-xs">
-              <tr>
-                <th class="px-4 py-2 text-left">#</th>
-                <th class="px-4 py-2 text-left">Usuario</th>
-                <th class="px-4 py-2 text-left">Nombre completo</th>
-                <th class="px-4 py-2 text-left">Departamento</th>
-                <th class="px-4 py-2 text-right">Encuestas</th>
-              </tr>
-            </thead>
-            <tbody id="tabla-usuarios" class="divide-y divide-cyan-500/10 bg-white/5"></tbody>
-          </table>
+
+        <!-- Cards (mobile) -->
+        <div id="usuarios-cards" class="grid grid-cols-1 gap-3 md:hidden"></div>
+
+        <!-- Tabla (md+) -->
+        <div class="hidden md:block">
+          <div class="relative overflow-x-auto rounded border border-cyan-500/20">
+            <table class="min-w-full text-sm">
+              <thead class="bg-cyan-500/10 text-cyan-300 uppercase text-xs sticky top-0 z-10">
+                <tr>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">#</th>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">Usuario</th>
+                  <th class="px-4 py-2 text-left">Nombre completo</th>
+                  <th class="px-4 py-2 text-left whitespace-nowrap">Departamento</th>
+                  <th class="px-4 py-2 text-right whitespace-nowrap">Encuestas</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-usuarios" class="divide-y divide-cyan-500/10 bg-white/5"></tbody>
+            </table>
+          </div>
+          <div id="tabla-usuarios-meta" class="text-xs text-slate-400 mt-2 text-right">—</div>
         </div>
-        <div id="tabla-usuarios-meta" class="text-xs text-slate-400 mt-2 text-right">—</div>
       </div>
     </section>
 
-    <!-- Otras gráficas opcionales -->
+    <!-- Otras gráficas -->
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="glass p-5">
         <h2 class="text-lg mb-2 text-cyan-300">🕒 Encuestas por Hora</h2>
         <div id="chart-horas" class="h-[360px]"></div>
       </div>
       <div class="glass p-5">
-        <h2 class="text-lg mb-2 text-cyan-300">🌍 Por Departamento / Municipio</h2>
+        <h2 class="text-lg mb-2 text-cyan-300">🌍 Distribución por Departamento / Municipio</h2>
         <div id="chart-deptos" class="h-[360px] mb-4"></div>
         <div id="chart-munis" class="h-[360px]"></div>
       </div>
@@ -82,9 +113,9 @@
     const DATA_URL = '/dashboard/data/';
     const REFRESH_MS = 10000;
 
-    const layout = {
-      paper_bgcolor:'#0f172a',
-      plot_bgcolor:'#0f172a',
+    const baseLayout = {
+      paper_bgcolor:'#0b1220',
+      plot_bgcolor:'#0b1220',
       font:{color:'#e0f2fe'},
       margin:{t:30,r:20,b:40,l:40}
     };
@@ -95,66 +126,103 @@
       return res.json();
     }
 
-    function updateUI(data){
-      const k = data.kpis || {};
-      document.getElementById('kpi-total').textContent         = (k.total_encuestas ?? 0);
-      document.getElementById('kpi-departamentos').textContent = (k.total_departamentos ?? 0);
-      document.getElementById('kpi-municipios').textContent    = (k.total_municipios ?? 0);
-      document.getElementById('kpi-usuarios').textContent      = (k.total_usuarios ?? 0);
+    function number(n){ return (typeof n === 'number' && isFinite(n)) ? n : 0; }
 
-      // Gráfica por usuario (username en el eje X)
-      const usuarios = data.usuarios || [];
+    function updateUI(data){
+      // KPIs
+      const k = data?.kpis || {};
+      document.getElementById('kpi-total').textContent         = number(k.total_encuestas);
+      document.getElementById('kpi-departamentos').textContent = number(k.total_departamentos);
+      document.getElementById('kpi-municipios').textContent    = number(k.total_municipios);
+      document.getElementById('kpi-usuarios').textContent      = number(k.total_usuarios);
+
+      // Usuarios (gráfica)
+      const usuarios = data?.usuarios || [];
       Plotly.react('chart-usuarios', [{
         x: usuarios.map(u => u.username || '—'),
-        y: usuarios.map(u => u.total || 0),
+        y: usuarios.map(u => number(u.total)),
         type:'bar',
-        marker:{color:'#00ffff'},
         hovertext: usuarios.map(u => u.nombre_completo || ''),
-        hoverinfo:'x+y+text'
-      }], {...layout, xaxis:{title:'Usuario', tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
+        hoverinfo:'x+y+text',
+        marker:{color:'#22d3ee'}
+      }], {...baseLayout, xaxis:{title:'Usuario', tickangle:-25}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
 
-      // Tabla
+      // Cards (mobile)
+      const cards = document.getElementById('usuarios-cards');
+      if (cards){
+        cards.innerHTML = '';
+        usuarios.forEach((u,i)=>{
+          cards.innerHTML += `
+            <div class="rounded-lg border border-cyan-500/20 bg-white/5 p-3">
+              <div class="flex items-center justify-between mb-1">
+                <div class="text-cyan-300 font-semibold">${u.username || '—'}</div>
+                <div class="text-xs text-slate-400">#${i+1}</div>
+              </div>
+              <div class="text-sm">${u.nombre_completo || '—'}</div>
+              <div class="text-xs text-slate-400 mt-1">Depto: ${u.departamento || 'Sin Dato'}</div>
+              <div class="mt-2 text-right">
+                <span class="text-cyan-300 font-semibold">${number(u.total)}</span>
+                <span class="text-xs text-slate-400 ml-1">encuestas</span>
+              </div>
+            </div>`;
+        });
+      }
+
+      // Tabla (md+)
       const tbody = document.getElementById('tabla-usuarios');
-      tbody.innerHTML = '';
-      usuarios.forEach((u,i)=>{
-        tbody.innerHTML += `
-          <tr class="hover:bg-cyan-500/10">
-            <td class="px-4 py-2">${i+1}</td>
-            <td class="px-4 py-2">${u.username || '—'}</td>
-            <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
-            <td class="px-4 py-2">${u.departamento || 'Sin Dato'}</td>
-            <td class="px-4 py-2 text-right text-cyan-300 font-semibold">${u.total || 0}</td>
-          </tr>`;
-      });
-      document.getElementById('tabla-usuarios-meta').textContent = `${usuarios.length} censista(s)`;
+      if (tbody){
+        tbody.innerHTML = '';
+        usuarios.forEach((u,i)=>{
+          tbody.innerHTML += `
+            <tr class="hover:bg-cyan-500/10">
+              <td class="px-4 py-2">${i+1}</td>
+              <td class="px-4 py-2 whitespace-nowrap">${u.username || '—'}</td>
+              <td class="px-4 py-2">${u.nombre_completo || '—'}</td>
+              <td class="px-4 py-2 whitespace-nowrap">${u.departamento || 'Sin Dato'}</td>
+              <td class="px-4 py-2 text-right text-cyan-300 font-semibold whitespace-nowrap">${number(u.total)}</td>
+            </tr>`;
+        });
+        const meta = document.getElementById('tabla-usuarios-meta');
+        if (meta) meta.textContent = `${usuarios.length} censista(s)`;
+      }
 
-      // Deptos/Munis/Horas (si usas esas tarjetas)
-      const deptos = data.departamentos || [];
+      // Deptos (pie)
+      const deptos = data?.departamentos || [];
       Plotly.react('chart-deptos', [{
         labels: deptos.map(d => d.departamento || 'Sin Dato'),
-        values: deptos.map(d => d.total || 0),
-        type:'pie', hole:.5
-      }], {paper_bgcolor:'#0f172a', font:{color:'#e0f2fe'}}, {displayModeBar:false});
+        values: deptos.map(d => number(d.total)),
+        type:'pie', hole:.55
+      }], {paper_bgcolor:'#0b1220', font:{color:'#e0f2fe'}, margin:{t:20,b:20,l:20,r:20}}, {displayModeBar:false});
 
-      const munis = data.municipios || [];
+      // Munis (pie)
+      const munis = data?.municipios || [];
       Plotly.react('chart-munis', [{
         labels: munis.map(m => m.municipio || 'Sin Dato'),
-        values: munis.map(m => m.total || 0),
-        type:'pie', hole:.5
-      }], {paper_bgcolor:'#0f172a', font:{color:'#e0f2fe'}}, {displayModeBar:false});
+        values: munis.map(m => number(m.total)),
+        type:'pie', hole:.55
+      }], {paper_bgcolor:'#0b1220', font:{color:'#e0f2fe'}, margin:{t:20,b:20,l:20,r:20}}, {displayModeBar:false});
 
-      const horas = data.horas || [];
+      // Horas (bar)
+      const horas = data?.horas || [];
       Plotly.react('chart-horas', [{
         x: horas.map(h => h.hora),
-        y: horas.map(h => h.total || 0),
+        y: horas.map(h => number(h.total)),
         type:'bar',
-        marker:{color:'#38bdf8'}
-      }], {...layout, xaxis:{title:'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
+        marker:{color:'#60a5fa'}
+      }], {...baseLayout, xaxis:{title:'Hora'}, yaxis:{title:'Encuestas'}}, {displayModeBar:false});
     }
 
     async function refresh(){ try{ updateUI(await fetchData()); } catch(e){ console.error(e); } }
     refresh(); setInterval(refresh, REFRESH_MS);
-    document.getElementById('refreshBtn').addEventListener('click', refresh);
+    document.getElementById('refreshBtn')?.addEventListener('click', refresh);
+
+    // Resize de plotly al cambiar tamaño
+    window.addEventListener('resize', ()=>{
+      ['chart-usuarios','chart-horas','chart-deptos','chart-munis'].forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) { try { Plotly.Plots.resize(el); } catch(e){} }
+      });
+    });
   </script>
 </body>
 </html>

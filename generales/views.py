@@ -30,216 +30,200 @@ SURVEY_ID_TARGET = 9  # <- filtra la encuesta solicitada
 
 def monitoreo_data(request):
     """
-    Dashboard diario agrupando por (user_id, fecha y hora):
-      - Se toma UNA sola observación por cada (user_id, date_trunc('hour', first_created_at)) del día
-      - Nombres desde auth_user (username + nombre completo)
-      - Departamento/Municipio robustos desde JSON (q1 y q2)
+    Monitoreo diario (HOY) con deduplicación por (user_id, answered_at) desde survey_surveyuser.
+    Métricas: total, por usuario, por departamento (q=1), por municipio (q=2), por hora.
     """
 
-    SQL_BASE = """
-    WITH answers AS (
-      SELECT a.*
-      FROM survey_answer a
-      WHERE a.survey_id = %s
-        AND a.created_at::date = CURRENT_DATE
-    ),
-    -- Resumen por formulario (misma que ya tenías)
-    forms AS (
+    # CTE base: pares únicos del día por (user_id, answered_at)
+    SQL_DU = """
+      SELECT DISTINCT sa.user_id, su.answered_at
+      FROM survey_answer sa
+      JOIN survey_surveyuser su
+        ON su.user_id = sa.user_id
+       AND su.survey_id = sa.survey_id
+      WHERE sa.survey_id = %s
+        AND su.answered_at::date = CURRENT_DATE
+    """
+
+    # Total hoy (sin repetidos)
+    SQL_TOTAL = f"""
+      SELECT COUNT(*) AS total_encuestas
+      FROM ({SQL_DU}) t
+    """
+
+    # Por usuario (username + nombre completo)
+    SQL_USUARIOS = f"""
+      WITH du AS ({SQL_DU})
       SELECT
-        CASE
-          WHEN sa.survey_user_form_id IS NOT NULL THEN 'F:' || sa.survey_user_form_id::text
-          WHEN sa.survey_user_id      IS NOT NULL THEN 'SU:'|| sa.survey_user_id::text
-          ELSE 'A:'|| sa.id::text
-        END                              AS form_key,
-        MIN(sa.created_at)               AS first_created_at,
-        MAX(sa.user_id)                  AS user_id,
-        MAX(COALESCE(NULLIF(BTRIM(u.username),''),'—')) AS username,
-        MAX(
-          COALESCE(
-            NULLIF(BTRIM(u.first_name||' '||u.last_name),' '),
-            NULLIF(BTRIM(u.username),''),
-            'Sin nombre'
-          )
-        )                                AS nombre_completo
-      FROM answers sa
-      LEFT JOIN auth_user u ON u.id = sa.user_id
-      GROUP BY 1
-    ),
-    -- ====== DEDUP estricta por (user_id, FECHA, HORA) ======
-    -- Colapsa múltiples reintentos del mismo usuario en la misma hora del día.
-    grouped AS (
-      SELECT
-        f.user_id,
-        f.username,
-        f.nombre_completo,
-        -- guardamos el primer timestamp real del bloque (útil para la serie por hora)
-        MIN(f.first_created_at) AS first_created_at,
-        -- elegimos un form_key representativo del bloque
-        MIN(f.form_key)         AS form_key
-      FROM forms f
-      -- aunque ya filtramos por CURRENT_DATE arriba, dejamos la fecha explícita para claridad
-      GROUP BY
-        f.user_id,
-        f.username,
-        f.nombre_completo,
-        date_trunc('hour', f.first_created_at)
-    )
+        du.user_id                                               AS convencion,
+        COALESCE(u.username, '—')                                AS username,
+        COALESCE(NULLIF(BTRIM(u.first_name||' '||u.last_name),' '), u.username, 'Sin nombre') AS nombre_completo,
+        COUNT(*)                                                 AS total
+      FROM du
+      LEFT JOIN auth_user u ON u.id = du.user_id
+      GROUP BY du.user_id, username, nombre_completo
+      ORDER BY total DESC, username;
     """
 
-    # ================== MÉTRICAS SOBRE "grouped" ==================
-
-    SQL_TOTAL = SQL_BASE + """
-      SELECT COUNT(*) FROM grouped;
-    """
-
-    SQL_POR_DEPTO = SQL_BASE + """
-      , dept AS (
-        SELECT
-          CASE
-            WHEN a.survey_user_form_id IS NOT NULL THEN 'F:'||a.survey_user_form_id::text
-            WHEN a.survey_user_id      IS NOT NULL THEN 'SU:'||a.survey_user_id::text
-            ELSE 'A:'||a.id::text
-          END AS form_key,
+    # Departamentos (q=1)
+    SQL_DEPTOS = f"""
+      WITH du AS ({SQL_DU}),
+      dept AS (
+        SELECT DISTINCT ON (sa.user_id, su.answered_at)
+          sa.user_id,
+          su.answered_at,
           INITCAP(
             COALESCE(
-              NULLIF(BTRIM((a.data::jsonb)->>'departamento'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'Departamento'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'depto'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'dept'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
-              (SELECT NULLIF(BTRIM(e->>'label'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              (SELECT NULLIF(BTRIM(e->>'value'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
-              'Sin dato'
+              NULLIF(BTRIM((sa.data::jsonb)->>'departamento'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'Departamento'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'depto'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'dept'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'label'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'value'), ''),
+              'Sin Dato'
             )
           ) AS departamento
-        FROM answers a
-        WHERE a.question_id = 1
+        FROM survey_answer sa
+        JOIN survey_surveyuser su
+          ON su.user_id = sa.user_id
+         AND su.survey_id = sa.survey_id
+        WHERE sa.survey_id = %s
+          AND su.answered_at::date = CURRENT_DATE
+          AND sa.question_id = 1
+        ORDER BY sa.user_id, su.answered_at, sa.id
       )
-      SELECT COALESCE(d.departamento,'Sin Dato') AS departamento,
-             COUNT(*) AS total
-      FROM grouped g
-      LEFT JOIN dept d USING(form_key)
+      SELECT COALESCE(d.departamento, 'Sin Dato') AS departamento,
+             COUNT(*)                              AS total
+      FROM du
+      LEFT JOIN dept d
+        ON d.user_id = du.user_id
+       AND d.answered_at = du.answered_at
       GROUP BY 1
       ORDER BY total DESC, departamento;
     """
 
-    SQL_POR_MUNI = SQL_BASE + """
-      , muni AS (
-        SELECT
-          CASE
-            WHEN a.survey_user_form_id IS NOT NULL THEN 'F:'||a.survey_user_form_id::text
-            WHEN a.survey_user_id      IS NOT NULL THEN 'SU:'||a.survey_user_id::text
-            ELSE 'A:'||a.id::text
-          END AS form_key,
+    # Municipios (q=2)
+    SQL_MUNIS = f"""
+      WITH du AS ({SQL_DU}),
+      muni AS (
+        SELECT DISTINCT ON (sa.user_id, su.answered_at)
+          sa.user_id,
+          su.answered_at,
           INITCAP(
             COALESCE(
-              NULLIF(BTRIM((a.data::jsonb)->>'municipio'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'Municipio'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'ciudad'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'city'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
-              (SELECT NULLIF(BTRIM(e->>'label'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              (SELECT NULLIF(BTRIM(e->>'value'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
-              'Sin dato'
+              NULLIF(BTRIM((sa.data::jsonb)->>'municipio'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'Municipio'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'ciudad'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'city'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'label'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'value'), ''),
+              'Sin Dato'
             )
           ) AS municipio
-        FROM answers a
-        WHERE a.question_id = 2
+        FROM survey_answer sa
+        JOIN survey_surveyuser su
+          ON su.user_id = sa.user_id
+         AND su.survey_id = sa.survey_id
+        WHERE sa.survey_id = %s
+          AND su.answered_at::date = CURRENT_DATE
+          AND sa.question_id = 2
+        ORDER BY sa.user_id, su.answered_at, sa.id
       )
-      SELECT COALESCE(m.municipio,'Sin Dato') AS municipio,
-             COUNT(*) AS total
-      FROM grouped g
-      LEFT JOIN muni m USING(form_key)
+      SELECT COALESCE(m.municipio, 'Sin Dato') AS municipio,
+             COUNT(*)                          AS total
+      FROM du
+      LEFT JOIN muni m
+        ON m.user_id = du.user_id
+       AND m.answered_at = du.answered_at
       GROUP BY 1
       ORDER BY total DESC, municipio;
     """
 
-    SQL_POR_USUARIO = SQL_BASE + """
-      , dept AS (
-        SELECT
-          CASE
-            WHEN a.survey_user_form_id IS NOT NULL THEN 'F:'||a.survey_user_form_id::text
-            WHEN a.survey_user_id      IS NOT NULL THEN 'SU:'||a.survey_user_id::text
-            ELSE 'A:'||a.id::text
-          END AS form_key,
+    # Usuarios con su departamento más frecuente
+    SQL_USUARIOS_CON_DEPTO = f"""
+      WITH du AS ({SQL_DU}),
+      dept AS (
+        SELECT DISTINCT ON (sa.user_id, su.answered_at)
+          sa.user_id,
+          su.answered_at,
           INITCAP(
             COALESCE(
-              NULLIF(BTRIM((a.data::jsonb)->>'departamento'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'Departamento'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'depto'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'dept'), ''),
-              NULLIF(BTRIM((a.data::jsonb)->>'label'), ''),
-              (SELECT NULLIF(BTRIM(e->>'label'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              (SELECT NULLIF(BTRIM(e->>'value'), '')
-                 FROM jsonb_path_query(a.data::jsonb, '$.value[*]') AS elem(e)
-                WHERE jsonb_typeof(a.data::jsonb->'value')='array' LIMIT 1),
-              NULLIF(BTRIM((a.data::jsonb)->>'value'), ''),
-              'Sin dato'
+              NULLIF(BTRIM((sa.data::jsonb)->>'departamento'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'Departamento'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'depto'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'dept'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'label'), ''),
+              NULLIF(BTRIM((sa.data::jsonb)->>'value'), ''),
+              'Sin Dato'
             )
           ) AS departamento
-        FROM answers a
-        WHERE a.question_id = 1
+        FROM survey_answer sa
+        JOIN survey_surveyuser su
+          ON su.user_id = sa.user_id
+         AND su.survey_id = sa.survey_id
+        WHERE sa.survey_id = %s
+          AND su.answered_at::date = CURRENT_DATE
+          AND sa.question_id = 1
+        ORDER BY sa.user_id, su.answered_at, sa.id
       ),
-      user_rows AS (
+      base AS (
         SELECT
-          g.user_id, g.username, g.nombre_completo, g.form_key,
-          COALESCE(d.departamento,'Sin Dato') AS departamento
-        FROM grouped g
-        LEFT JOIN dept d USING(form_key)
+          du.user_id,
+          du.answered_at,
+          COALESCE(d.departamento, 'Sin Dato') AS departamento
+        FROM du
+        LEFT JOIN dept d
+          ON d.user_id = du.user_id
+         AND d.answered_at = du.answered_at
       )
       SELECT
-        ur.user_id                       AS convencion,
-        MAX(ur.username)                 AS username,
-        MAX(ur.nombre_completo)          AS nombre_completo,
+        b.user_id                                               AS convencion,
+        COALESCE(u.username, '—')                               AS username,
+        COALESCE(NULLIF(BTRIM(u.first_name||' '||u.last_name),' '), u.username, 'Sin nombre') AS nombre_completo,
         (
           SELECT departamento FROM (
             SELECT departamento, COUNT(*) c
-            FROM user_rows ur2
-            WHERE ur2.user_id = ur.user_id
+            FROM base b2
+            WHERE b2.user_id = b.user_id
             GROUP BY departamento
             ORDER BY c DESC, departamento
             LIMIT 1
           ) x
-        ) AS departamento,
-        COUNT(*) AS total
-      FROM user_rows ur
-      GROUP BY ur.user_id
+        )                                                       AS departamento,
+        COUNT(*)                                                AS total
+      FROM base b
+      LEFT JOIN auth_user u ON u.id = b.user_id
+      GROUP BY b.user_id, username, nombre_completo
       ORDER BY total DESC, username;
     """
 
-    SQL_POR_HORA = SQL_BASE + """
+    # Por hora (answered_at)
+    SQL_HORAS = f"""
+      WITH du AS ({SQL_DU})
       SELECT
-        TO_CHAR(date_trunc('hour', first_created_at), 'HH24:00') AS hora,
-        COUNT(*) AS total
-      FROM grouped
+        TO_CHAR(date_trunc('hour', du.answered_at), 'HH24:00') AS hora,
+        COUNT(*)                                               AS total
+      FROM du
       GROUP BY 1
       ORDER BY 1;
     """
 
     try:
         with connection.cursor() as cur:
+            # Total: 1 placeholder
             cur.execute(SQL_TOTAL, [SURVEY_ID_TARGET])
             total = int(cur.fetchone()[0] or 0)
 
-            cur.execute(SQL_POR_DEPTO, [SURVEY_ID_TARGET])
+            # Departamentos: 2 placeholders (uno en du, uno en dept)
+            cur.execute(SQL_DEPTOS, [SURVEY_ID_TARGET, SURVEY_ID_TARGET])
             deptos = [{"departamento": r[0], "total": int(r[1] or 0)} for r in cur.fetchall()]
 
-            cur.execute(SQL_POR_MUNI, [SURVEY_ID_TARGET])
+            # Municipios: 2 placeholders
+            cur.execute(SQL_MUNIS, [SURVEY_ID_TARGET, SURVEY_ID_TARGET])
             munis = [{"municipio": r[0], "total": int(r[1] or 0)} for r in cur.fetchall()]
 
-            cur.execute(SQL_POR_USUARIO, [SURVEY_ID_TARGET])
+            # Usuarios + departamento más frecuente: 2 placeholders
+            cur.execute(SQL_USUARIOS_CON_DEPTO, [SURVEY_ID_TARGET, SURVEY_ID_TARGET])
             usuarios = [
                 {
                     "convencion": r[0],
@@ -251,7 +235,8 @@ def monitoreo_data(request):
                 for r in cur.fetchall()
             ]
 
-            cur.execute(SQL_POR_HORA, [SURVEY_ID_TARGET])
+            # Horas: 1 placeholder
+            cur.execute(SQL_HORAS, [SURVEY_ID_TARGET])
             horas = [{"hora": r[0], "total": int(r[1] or 0)} for r in cur.fetchall()]
 
         data = {
@@ -267,7 +252,10 @@ def monitoreo_data(request):
             "horas": horas,
         }
         return JsonResponse(data, json_dumps_params={"ensure_ascii": False})
+
     except Exception as e:
+        # Muestra el error en consola (útil en desarrollo)
+        print("[monitoreo_data] ERROR:", e)
         return JsonResponse({"error": str(e)}, status=500)
 
 # ================
